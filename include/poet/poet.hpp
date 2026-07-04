@@ -12,6 +12,7 @@
 #include <poet/core/dynamic_for.hpp>
 #include <poet/core/dispatch.hpp>
 #include <poet/core/static_for.hpp>
+#include <poet/core/pipelined_for.hpp>
 #include <poet/core/undef_macros.hpp>
 // NOLINTEND(llvm-include-order)
 // clang-format on

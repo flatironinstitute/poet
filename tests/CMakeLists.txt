@@ -123,6 +123,9 @@ set(DISPATCH_TEST_SRCS
 set(CACHE_LINE_INFO_TEST_SRCS
   cache_line_info_tests.cpp
 )
+set(PIPELINED_FOR_TEST_SRCS
+  pipelined_for_tests.cpp
+)
 option(POET_ENABLE_TEST_PCH "Enable precompiled headers for test targets" ON)
 
 # Internal macro: applies common configuration to all test targets
@@ -194,6 +197,7 @@ macro(add_poet_tests_suite suite_target cxx_feature)
     ${suite_target}_headers
     ${suite_target}_dynamic_for
     ${suite_target}_static_for
+    ${suite_target}_pipelined_for
     ${suite_target}_cpu_info
     ${suite_target}_cache_line_info
     ${suite_target}_dispatch
@@ -203,6 +207,7 @@ macro(add_poet_tests_suite suite_target cxx_feature)
   add_poet_test_exec(${suite_target}_headers ${cxx_feature} ${HEADERS_TEST_SRCS})
   add_poet_test_exec(${suite_target}_dynamic_for ${cxx_feature} ${DYNAMIC_FOR_TEST_SRCS})
   add_poet_test_exec(${suite_target}_static_for ${cxx_feature} ${STATIC_FOR_TEST_SRCS})
+  add_poet_test_exec(${suite_target}_pipelined_for ${cxx_feature} ${PIPELINED_FOR_TEST_SRCS})
   add_poet_test_exec(${suite_target}_cpu_info ${cxx_feature} ${CPU_INFO_TEST_SRCS})
   # Compile cpu_info tests with -march=native so POET detects the full
   # hardware ISA, then validate against the /proc/cpuinfo ground truth.
