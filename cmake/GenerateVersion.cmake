@@ -25,13 +25,10 @@
 
 cmake_minimum_required(VERSION 3.20)
 
-# Resolve project source dir — works both inside a CMake configure and under
-# `cmake -P` (script mode).
-if(CMAKE_SOURCE_DIR AND EXISTS "${CMAKE_SOURCE_DIR}/VERSION")
-  set(_poet_src "${CMAKE_SOURCE_DIR}")
-else()
-  get_filename_component(_poet_src "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
-endif()
+# poet's root, resolved relative to this file (poet/cmake/GenerateVersion.cmake).
+# Works in every mode — standalone, add_subdirectory, and `cmake -P`. Do NOT use
+# CMAKE_SOURCE_DIR: under add_subdirectory it points at the consumer, not poet.
+get_filename_component(_poet_src "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 file(READ "${_poet_src}/VERSION" POET_VERSION_STRING)
 string(STRIP "${POET_VERSION_STRING}" POET_VERSION_STRING)
