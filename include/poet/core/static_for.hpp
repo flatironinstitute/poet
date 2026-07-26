@@ -33,6 +33,37 @@ namespace detail {
         }
     }
 
+    /// \brief True when `Callable` accepts the loop index as an integral_constant.
+    ///
+    /// Overload resolution, not `std::is_invocable_v`: the latter instantiates the
+    /// `__invoke_result` / `__result_of_impl` class-template chain once per
+    /// (callable, index) pair, which dominates frontend time in translation units
+    /// that instantiate `static_for` thousands of times. Measured on one FFT
+    /// engine TU (14251 static_for instantiations): 34537 class instantiations /
+    /// 53.2s of clang `InstantiateClass` down to 1021 / 1.3s, ~6% off total
+    /// compile time on gcc-14 and clang-19 alike, with byte-identical objects.
+    ///
+    /// Deliberately narrower than `is_invocable`: it detects a direct call, not
+    /// full INVOKE semantics. `static_for` only ever calls `func(ic)`.
+    /// Not a concept — poet also builds as C++17, and this form is
+    /// standard-agnostic. Function overloads rather than a detector class
+    /// template: a class would reintroduce one class instantiation per
+    /// (callable, index) pair, which is the cost being removed. `int` beats
+    /// `long` on an exact match for the `0` argument, so the viable branch is
+    /// picked without a C-style variadic fallback.
+    template<typename Callable, std::ptrdiff_t I>
+    constexpr auto detect_takes_index(int /*rank*/) noexcept
+      -> decltype(std::declval<Callable &>()(std::integral_constant<std::ptrdiff_t, I>{}), true) {
+        return true;
+    }
+
+    template<typename Callable, std::ptrdiff_t I> constexpr auto detect_takes_index(long /*rank*/) noexcept -> bool {
+        return false;
+    }
+
+    template<typename Callable, std::ptrdiff_t I>
+    inline constexpr bool takes_index_v = detect_takes_index<Callable, I>(0);
+
     template<std::ptrdiff_t Begin, std::ptrdiff_t End, std::ptrdiff_t Step>
     POET_CPP20_CONSTEVAL auto default_block_size() noexcept -> std::size_t {
         constexpr auto count = detail::compute_range_count<Begin, End, Step>();
@@ -71,7 +102,7 @@ POET_FORCEINLINE constexpr void static_for(Func &&func) {
     using callable_t = std::remove_reference_t<Func>;
     detail::callable_storage_t<Func> callable(std::forward<Func>(func));
 
-    if constexpr (std::is_invocable_v<callable_t &, std::integral_constant<std::ptrdiff_t, Begin>>) {
+    if constexpr (detail::takes_index_v<callable_t, Begin>) {
         detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(callable);
     } else {
         // `template <auto I> operator()()` form: adapt it to the

@@ -285,3 +285,50 @@ TEST_CASE("static_for single iteration", "[static_for][edge_case]") {
 
     REQUIRE(value == 5);
 }
+
+namespace {
+// Index form: callable directly with integral_constant.
+struct index_form {
+    void operator()(std::integral_constant<std::ptrdiff_t, 0>) const {}
+};
+// Template form only: must be adapted through template_invoker.
+struct template_form {
+    template<auto I> void operator()() const {}
+};
+// Accepts both; the index form must win so no adapter is interposed.
+struct both_forms {
+    mutable bool *took_index = nullptr;
+    void operator()(std::integral_constant<std::ptrdiff_t, 0>) const { *took_index = true; }
+    template<auto I> void operator()() const { *took_index = false; }
+};
+// Callable, but not with an index.
+struct unrelated_arg {
+    void operator()(const char *) const {}
+};
+}// namespace
+
+TEST_CASE("static_for index detection", "[static_for][detection]") {
+    using poet::detail::takes_index_v;
+
+    // The detection predicate behind static_for's two dispatch arms. Asserted
+    // directly so a change to it fails here rather than silently routing every
+    // callable through the template_invoker adapter.
+    STATIC_REQUIRE(takes_index_v<index_form, 0>);
+    STATIC_REQUIRE_FALSE(takes_index_v<template_form, 0>);
+    STATIC_REQUIRE(takes_index_v<both_forms, 0>);
+    STATIC_REQUIRE_FALSE(takes_index_v<unrelated_arg, 0>);
+
+    // Only the index that is actually asked about matters.
+    STATIC_REQUIRE_FALSE(takes_index_v<index_form, 1>);
+
+    // A lambda taking the index generically satisfies it at every index.
+    const auto generic = [](auto) {};
+    STATIC_REQUIRE(takes_index_v<decltype(generic), 0>);
+    STATIC_REQUIRE(takes_index_v<decltype(generic), 7>);
+}
+
+TEST_CASE("static_for prefers the index form when a callable offers both", "[static_for][detection]") {
+    bool took_index = false;
+    poet::static_for<0, 1>(::both_forms{ &took_index });
+    REQUIRE(took_index);
+}
