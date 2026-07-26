@@ -20,7 +20,7 @@
 // ============================================================================
 // POET_UNREACHABLE
 // ============================================================================
-/// Marks code path as unreachable. UB if reached at runtime.
+/// Marks a code path as unreachable. UB if reached at runtime.
 #if defined(__GNUC__) || defined(__clang__)
 #define POET_UNREACHABLE() __builtin_unreachable()// NOLINT(cppcoreguidelines-macro-usage)
 #elif defined(_MSC_VER)
@@ -63,49 +63,16 @@
 #endif
 
 // ============================================================================
-// POET_ASSUME
-// ============================================================================
-/// Generic assumption hint. UB if expression is false at runtime.
-/// Uses [[assume(expr)]] when the compiler reports support via __has_cpp_attribute
-/// (GCC >= 13, Clang >= 19), otherwise falls back to compiler builtins.
-#ifdef __has_cpp_attribute
-#if __has_cpp_attribute(assume)
-#define POET_ASSUME(expr) [[assume(expr)]]// NOLINT(cppcoreguidelines-macro-usage)
-#endif
-#endif
-#ifndef POET_ASSUME
-#if defined(__clang__)
-#define POET_ASSUME(expr) __builtin_assume(expr)// NOLINT(cppcoreguidelines-macro-usage)
-#elif defined(__GNUC__)
-#define POET_ASSUME(expr)                \
-    do {                                 \
-        if (!(expr)) POET_UNREACHABLE(); \
-    } while (false)// NOLINT(cppcoreguidelines-macro-usage)
-#elif defined(_MSC_VER)
-#define POET_ASSUME(expr) __assume(expr)// NOLINT(cppcoreguidelines-macro-usage)
-#else
-#define POET_ASSUME(expr) \
-    do {                  \
-    } while (false)// NOLINT(cppcoreguidelines-macro-usage)
-#endif
-#endif// ifndef POET_ASSUME
-
-// ============================================================================
 // POET_NOINLINE_FLATTEN
 // ============================================================================
 /// Prevents a function from being inlined into its caller (register isolation)
 /// while forcing all functions it calls to be inlined into it.
 ///
-/// This is critical for GCC codegen in static_for isolated blocks: without
-/// flatten, GCC's ISRA pass extracts each functor operator() instantiation
-/// into a separate out-of-line clone, causing redundant constant reloads
-/// from .rodata on every call (5 FMA constants * 32 iterations = 160
-/// wasted loads per block).  With flatten, GCC inlines all functor calls
-/// within the block so constants are hoisted into registers once at block
-/// entry — matching Clang's default behavior.
-///
-/// Clang already inlines everything within noinline blocks, so flatten is
-/// harmless but included for consistency.
+/// `flatten` is what makes `noinline` usable on GCC: on its own, GCC's ISRA
+/// pass extracts each functor `operator()` instantiation into an out-of-line
+/// clone, so every call reloads the body's constants from .rodata. With
+/// `flatten` the constants are hoisted into registers once at block entry.
+/// Clang already inlines everything inside a noinline block.
 #ifdef _MSC_VER
 #define POET_NOINLINE_FLATTEN __declspec(noinline)
 #elif defined(__GNUC__) || defined(__clang__)
@@ -127,69 +94,71 @@
 #endif
 
 // ============================================================================
-// poet_count_trailing_zeros
+// poet::detail::count_trailing_zeros
 // ============================================================================
-/// Counts trailing zero bits. UB if value is 0.
+/// Counts trailing zero bits of a std::size_t. UB if value is 0.
 /// Guarded separately so it is defined only once even when macros.hpp is
 /// re-included after undef_macros.hpp.
 #ifndef POET_COUNT_TRAILING_ZEROS_DEFINED
 #define POET_COUNT_TRAILING_ZEROS_DEFINED
+
+#include <cstddef>
+
 #if __cplusplus >= 202002L
 #include <bit>
+#elif defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
-constexpr auto poet_count_trailing_zeros(unsigned int value) noexcept -> unsigned int {
-    return static_cast<unsigned int>(std::countr_zero(value));
-}
+namespace poet::detail {
 
-constexpr auto poet_count_trailing_zeros(unsigned long value) noexcept -> unsigned int {// NOLINT(google-runtime-int)
-    return static_cast<unsigned int>(std::countr_zero(value));
-}
+#if __cplusplus >= 202002L
 
-constexpr auto poet_count_trailing_zeros(unsigned long long value) noexcept
-  -> unsigned int {// NOLINT(google-runtime-int)
+constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int {
     return static_cast<unsigned int>(std::countr_zero(value));
 }
 
 #elif defined(__GNUC__) || defined(__clang__)
 
-constexpr auto poet_count_trailing_zeros(unsigned int value) noexcept -> unsigned int {
-    return static_cast<unsigned int>(__builtin_ctz(value));
-}
-
-constexpr auto poet_count_trailing_zeros(unsigned long value) noexcept -> unsigned int {// NOLINT(google-runtime-int)
-    return static_cast<unsigned int>(__builtin_ctzl(value));
-}
-
-constexpr auto poet_count_trailing_zeros(unsigned long long value) noexcept
-  -> unsigned int {// NOLINT(google-runtime-int)
-    return static_cast<unsigned int>(__builtin_ctzll(value));
+constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int {
+    static_assert(sizeof(std::size_t) <= sizeof(unsigned long long), "unsupported std::size_t width");
+    if constexpr (sizeof(std::size_t) <= sizeof(unsigned int)) {
+        return static_cast<unsigned int>(__builtin_ctz(static_cast<unsigned int>(value)));
+    } else {
+        return static_cast<unsigned int>(__builtin_ctzll(static_cast<unsigned long long>(value)));
+    }
 }
 
 #elif defined(_MSC_VER)
 
-#include <intrin.h>
-
-inline unsigned int poet_count_trailing_zeros(unsigned long value) noexcept {
-    unsigned long index;
-    _BitScanForward(&index, value);
-    return static_cast<unsigned int>(index);
-}
-
+inline auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int {
+    unsigned long index = 0;
 #if defined(_WIN64)
-inline unsigned int poet_count_trailing_zeros(unsigned long long value) noexcept {
-    unsigned long index;
-    _BitScanForward64(&index, value);
-    return static_cast<unsigned int>(index);
-}
+    _BitScanForward64(&index, static_cast<unsigned __int64>(value));
+#else
+    _BitScanForward(&index, static_cast<unsigned long>(value));
 #endif
-
-inline unsigned int poet_count_trailing_zeros(unsigned int value) noexcept {
-    return poet_count_trailing_zeros(static_cast<unsigned long>(value));
+    return static_cast<unsigned int>(index);
 }
 
 #else
-#error "poet_count_trailing_zeros: no implementation for this compiler (need C++20 <bit>, GCC/Clang builtins, or MSVC)"
+
+/// Portable fallback: width-agnostic, so it is correct for any std::size_t.
+/// Only reached on C++17 compilers that are neither GCC/Clang nor MSVC, and
+/// only once per dynamic_for call with a non-constant power-of-two stride.
+constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int {
+    unsigned int count = 0;
+    while ((value & std::size_t{ 1 }) == 0) {
+        value >>= 1;
+        ++count;
+    }
+    return count;
+}
+
 #endif
+
+}// namespace poet::detail
+
 #endif// POET_COUNT_TRAILING_ZEROS_DEFINED
 
 // ============================================================================
@@ -213,6 +182,87 @@ inline unsigned int poet_count_trailing_zeros(unsigned int value) noexcept {
 #define POET_HOT_LOOP __forceinline
 #else
 #define POET_HOT_LOOP inline
+#endif
+
+// ============================================================================
+// POET_PUSH_OPTIMIZE / POET_POP_OPTIMIZE
+// ============================================================================
+/// GCC register-allocator tuning for hot paths. Wrap performance-critical
+/// function groups in POET_PUSH_OPTIMIZE / POET_POP_OPTIMIZE pairs.
+///
+/// At -O3 (POET_HIGH_OPTIMIZATION=1) on GCC, enables IRA pressure flags
+/// (-fira-hoist-pressure, -fno-ira-share-spill-slots, -frename-registers)
+/// that improve register allocation in unrolled and isolated blocks.
+/// Without -O3, promotes the section to -O3.
+/// On MSVC, enables aggressive optimization (/Ogt).
+/// On Clang and others: no-op (Clang cannot enable optimizations via pragma).
+///
+/// Opt-out via -DPOET_DISABLE_PUSH_OPTIMIZE to preserve custom flags.
+#ifndef POET_DISABLE_PUSH_OPTIMIZE
+#if defined(__GNUC__) && !defined(__clang__)
+#if POET_HIGH_OPTIMIZATION
+// At -O3: Apply IRA pressure tuning + semantic-interposition removal for hot paths.
+// -fno-semantic-interposition: allow inlining/IPO across function boundaries
+//   (GCC default assumes exported symbols may be LD_PRELOAD-interposed, which
+//    blocks optimizations even within the same TU; safe for header-only POET).
+// -fvect-cost-model=cheap: allow vectorization even when GCC's cost model is
+//   uncertain (helps SLP-vectorize independent accumulator chains in static_for).
+//
+// Vector width: prefer the widest SIMD width enabled at compile time.
+//   GCC 13/14 sometimes drop to 128-bit even with AVX2; -mprefer-vector-width
+//   ensures hot paths use the full register width. On AArch64 SVE, -msve-vector-bits
+//   locks the VL so the compiler can unroll without predication overhead.
+//   Uses #pragma GCC target (not optimize) since these are machine flags.
+//   Scoped to push/pop, so it does not affect user code outside POET internals.
+//   On SSE-only x86 and NEON (fixed 128-bit): no target pragma needed.
+
+// -- Internal: optimization flags common to all GCC hot paths
+#define POET_PUSH_OPTIMIZE_BASE_                                                                              \
+    _Pragma("GCC push_options") _Pragma("GCC optimize(\"-fira-hoist-pressure\")")                             \
+      _Pragma("GCC optimize(\"-fno-ira-share-spill-slots\")") _Pragma("GCC optimize(\"-frename-registers\")") \
+        _Pragma("GCC optimize(\"-fno-semantic-interposition\")") _Pragma("GCC optimize(\"-fvect-cost-model=cheap\")")
+
+// -- Internal: target pragma for widest available vector width
+#if defined(__AVX512F__)
+#define POET_PUSH_VECTOR_WIDTH_ _Pragma("GCC target(\"prefer-vector-width=512\")")
+#elif defined(__AVX2__) || defined(__AVX__)
+#define POET_PUSH_VECTOR_WIDTH_ _Pragma("GCC target(\"prefer-vector-width=256\")")
+#elif defined(__ARM_FEATURE_SVE_BITS) && __ARM_FEATURE_SVE_BITS > 0
+// SVE with known VL (e.g. -msve-vector-bits=256): lock it for the hot path.
+#define POET_PUSH_SVE_BITS_STR_(x) #x
+#define POET_PUSH_SVE_BITS_VAL_(x) POET_PUSH_SVE_BITS_STR_(x)
+#define POET_PUSH_VECTOR_WIDTH_ \
+    _Pragma("GCC target(\"sve-vector-bits=" POET_PUSH_SVE_BITS_VAL_(__ARM_FEATURE_SVE_BITS) "\")")
+#else
+#define POET_PUSH_VECTOR_WIDTH_
+#endif
+
+#define POET_PUSH_OPTIMIZE POET_PUSH_OPTIMIZE_BASE_ POET_PUSH_VECTOR_WIDTH_
+#define POET_POP_OPTIMIZE _Pragma("GCC pop_options")
+#else
+// Without -O3: Enable -O3 for this section
+#define POET_PUSH_OPTIMIZE _Pragma("GCC push_options") _Pragma("GCC optimize(\"-O3\")")
+#define POET_POP_OPTIMIZE _Pragma("GCC pop_options")
+#endif
+#elif defined(_MSC_VER)
+// In Debug builds, /RTC1 (runtime checks) is incompatible with /O2.
+// Only enable optimization pragma in non-debug MSVC builds.
+#ifndef _DEBUG
+#define POET_PUSH_OPTIMIZE __pragma(optimize("gt", on))
+#define POET_POP_OPTIMIZE __pragma(optimize("", on))
+#else
+#define POET_PUSH_OPTIMIZE
+#define POET_POP_OPTIMIZE
+#endif
+#else
+// Clang and others: no-op (Clang can only disable opts, not enable)
+#define POET_PUSH_OPTIMIZE
+#define POET_POP_OPTIMIZE
+#endif
+#else
+// User opted out: no-op to preserve their custom flags
+#define POET_PUSH_OPTIMIZE
+#define POET_POP_OPTIMIZE
 #endif
 
 // ============================================================================
@@ -276,27 +326,36 @@ enum class instruction_set : unsigned char {
     arm_sve,///< ARM SVE (scalable vectors)
     arm_sve2,///< ARM SVE2 (scalable vectors, enhanced)
     ppc_altivec,///< PowerPC AltiVec (128-bit vectors)
-    ppc_vsx,///< PowerPC VSX (128/256-bit vectors)
+    ppc_vsx,///< PowerPC VSX (128-bit vectors, 64 registers)
     mips_msa,///< MIPS MSA (128-bit vectors)
 };
 
 /// Register and vector characteristics for a target ISA.
 struct register_info {
-    size_t gp_registers;
-    size_t vector_registers;
-    size_t vector_width_bits;
-    size_t lanes_64bit;
-    size_t lanes_32bit;
+    std::size_t gp_registers;
+    std::size_t vector_registers;
+    std::size_t vector_width_bits;
+    std::size_t lanes_64bit;
+    std::size_t lanes_32bit;
     instruction_set isa;
 };
 
 /// Cache line sizes used for padding and alignment decisions.
 struct cache_line_info {
-    size_t destructive_size;
-    size_t constructive_size;
+    std::size_t destructive_size;
+    std::size_t constructive_size;
 };
 
 namespace detail {
+
+    /// SVE is scalable, so a width is only known when the build pins one with
+    /// `-msve-vector-bits=N` -- the same macro macros.hpp locks the hot paths to.
+    /// Otherwise report the 128-bit floor the architecture guarantees.
+#if defined(__ARM_FEATURE_SVE_BITS) && __ARM_FEATURE_SVE_BITS > 0
+    inline constexpr std::size_t sve_vector_bits = __ARM_FEATURE_SVE_BITS;
+#else
+    inline constexpr std::size_t sve_vector_bits = 128;
+#endif
 
     POET_CPP20_CONSTEVAL auto detect_instruction_set() noexcept -> instruction_set {
 #ifdef __AVX512F__
@@ -381,14 +440,23 @@ namespace detail {
             };
 
         case instruction_set::arm_neon:
-        case instruction_set::arm_sve:
-        case instruction_set::arm_sve2:
             return register_info{
                 31,// gp_registers
                 32,// vector_registers
                 128,// vector_width_bits
                 2,// lanes_64bit
                 4,// lanes_32bit
+                isa,
+            };
+
+        case instruction_set::arm_sve:
+        case instruction_set::arm_sve2:
+            return register_info{
+                31,// gp_registers
+                32,// vector_registers
+                sve_vector_bits,// vector_width_bits
+                sve_vector_bits / 64,// lanes_64bit
+                sve_vector_bits / 32,// lanes_32bit
                 isa,
             };
 
@@ -479,19 +547,27 @@ POET_CPP20_CONSTEVAL auto registers_for(instruction_set isa) noexcept -> registe
     return detail::get_register_info(isa);
 }
 
-POET_CPP20_CONSTEVAL auto vector_register_count() noexcept -> size_t { return available_registers().vector_registers; }
+POET_CPP20_CONSTEVAL auto vector_register_count() noexcept -> std::size_t {
+    return available_registers().vector_registers;
+}
 
-POET_CPP20_CONSTEVAL auto vector_width_bits() noexcept -> size_t { return available_registers().vector_width_bits; }
+POET_CPP20_CONSTEVAL auto vector_width_bits() noexcept -> std::size_t {
+    return available_registers().vector_width_bits;
+}
 
-POET_CPP20_CONSTEVAL auto vector_lanes_64bit() noexcept -> size_t { return available_registers().lanes_64bit; }
+POET_CPP20_CONSTEVAL auto vector_lanes_64bit() noexcept -> std::size_t { return available_registers().lanes_64bit; }
 
-POET_CPP20_CONSTEVAL auto vector_lanes_32bit() noexcept -> size_t { return available_registers().lanes_32bit; }
+POET_CPP20_CONSTEVAL auto vector_lanes_32bit() noexcept -> std::size_t { return available_registers().lanes_32bit; }
 
 POET_CPP20_CONSTEVAL auto cache_line() noexcept -> cache_line_info { return detail::detect_cache_line_info(); }
 
-POET_CPP20_CONSTEVAL auto destructive_interference_size() noexcept -> size_t { return cache_line().destructive_size; }
+POET_CPP20_CONSTEVAL auto destructive_interference_size() noexcept -> std::size_t {
+    return cache_line().destructive_size;
+}
 
-POET_CPP20_CONSTEVAL auto constructive_interference_size() noexcept -> size_t { return cache_line().constructive_size; }
+POET_CPP20_CONSTEVAL auto constructive_interference_size() noexcept -> std::size_t {
+    return cache_line().constructive_size;
+}
 
 }// namespace poet
 // END_FILE: include/poet/core/cpu_info.hpp
@@ -500,7 +576,35 @@ POET_CPP20_CONSTEVAL auto constructive_interference_size() noexcept -> size_t { 
 // BEGIN_FILE: include/poet/core/dynamic_for.hpp
 
 /// \file dynamic_for.hpp
-/// \brief Runtime loops emitted as compile-time unrolled blocks.
+/// \brief Runtime-bounded loops with a compile-time-unrolled body.
+///
+/// The range is a runtime value, the body is unrolled at compile time. One
+/// `run_loop` template covers every public overload; the stride, the callable
+/// form, and the extra by-value arguments are all template parameters, so no
+/// tag object or dispatch value is ever passed at run time.
+///
+/// ## Execution strategy
+///
+/// 1. **Main loop.** Whole blocks of `Unroll` iterations, each block a fold, so
+///    loop overhead is one branch per `Unroll` iterations and the per-lane
+///    chains stay independent.
+/// 2. **Tail (binary decomposition).** The remaining `0..Unroll-1` iterations
+///    are peeled by recursively halving the count, giving O(log2 Unroll)
+///    branches each guarding a fully unrolled block, instead of O(Unroll).
+///    Technique from Andrei Alexandrescu's CppCon 2025 talk.
+/// 3. **Tiny ranges.** When `count < Unroll` there is no main loop, so the tail
+///    is emitted inline rather than through the outlined helper — the lane
+///    constants stay visible to the optimizer.
+///
+/// ## When it helps
+///
+/// `dynamic_for` pays off for **multi-accumulator** patterns: take the lane form
+/// (`func(lane_constant, index)`) and keep one accumulator per lane, breaking
+/// the serial dependency that limits a plain loop.
+///
+/// It does not help for plain element-wise work (`out[i] = f(i)`) — a `for` loop
+/// has less overhead — nor for a serial chain (`acc += work(i)`), where
+/// unrolling adds instructions without adding ILP.
 
 #include <cstddef>
 #include <limits>
@@ -516,237 +620,216 @@ namespace poet {
 
 namespace detail {
 
-    template<typename...> inline constexpr bool always_false_v = false;
+    // ========================================================================
+    // Callable form — resolved once per instantiation, never per iteration
+    // ========================================================================
 
-    struct lane_by_value_tag {};///< func(integral_constant<size_t, Lane>{}, index)
-    struct index_only_tag {};///< func(index)
+    /// \brief True if F accepts `(index, args...)` or `(lane_constant, index, args...)`.
+    ///
+    /// Used in the enable_if on every public overload so that only the overload
+    /// whose Func slot really is a callable survives overload resolution.
+    template<typename F, typename T, typename... Args>
+    inline constexpr bool is_df_callable_v =
+      std::is_invocable_v<F &, T, Args...>
+      || std::is_invocable_v<F &, std::integral_constant<std::size_t, 0>, T, Args...>;
 
-    template<typename Func, typename T> constexpr auto detect_callable_form() {
-        if constexpr (std::is_invocable_v<Func &, std::integral_constant<std::size_t, 0>, T>) {
-            return lane_by_value_tag{};
-        } else if constexpr (std::is_invocable_v<Func &, T>) {
-            return index_only_tag{};
+    /// \brief True when the callable takes the lane as a leading `integral_constant`.
+    /// Given `is_df_callable_v`, "not this" means the index-only form.
+    template<typename F, typename T, typename... Args>
+    inline constexpr bool wants_lane_v = std::is_invocable_v<F &, std::integral_constant<std::size_t, 0>, T, Args...>;
+
+    template<bool WantsLane, std::size_t Lane, typename Func, typename T, typename... Args>
+    POET_FORCEINLINE constexpr void invoke_lane(Func &func, T index, Args... args) {
+        if constexpr (WantsLane) {
+            func(std::integral_constant<std::size_t, Lane>{}, index, args...);
         } else {
-            static_assert(always_false_v<Func>, "dynamic_for callable must accept (lane, index) or (index)");
-            return index_only_tag{};
+            func(index, args...);
         }
     }
 
-    template<typename Func, typename T> using callable_form_t = decltype(detect_callable_form<Func, T>());
+    // ========================================================================
+    // Stride carrier
+    // ========================================================================
 
-    template<std::size_t Lane, typename Func, typename T>
-    POET_FORCEINLINE constexpr void invoke_lane(lane_by_value_tag /*tag*/, Func &func, T index) {
-        func(std::integral_constant<std::size_t, Lane>{}, index);
+    /// A stride fixed at compile time. Empty and only ever a template argument,
+    /// so it costs no register and its value reaches every expression below as
+    /// a literal. A runtime stride is carried as a plain `T`, which lets one
+    /// implementation serve both without an `if constexpr` per use site.
+    template<std::ptrdiff_t Step> using static_stride = std::integral_constant<std::ptrdiff_t, Step>;
+
+    /// Narrows either stride flavour to `T`. `static_stride` is an
+    /// `integral_constant`, whose implicit conversion to its value type covers
+    /// the compile-time case, so one cast serves both.
+    template<typename T, typename Stride> POET_FORCEINLINE constexpr auto stride_of(Stride stride) noexcept -> T {
+        return static_cast<T>(stride);
     }
 
-    template<std::size_t Lane, typename Func, typename T>
-    POET_FORCEINLINE constexpr void invoke_lane(index_only_tag /*tag*/, Func &func, T index) {
-        func(index);
-    }
+    // ========================================================================
+    // Iteration count
+    // ========================================================================
 
-    // Emits `Count` calls as a single expanded pack; the comma-fold carries `index` forward
-    // so each lane sees a distinct compile-time `Lane` and the running runtime `index`.
-    template<typename FormTag, typename Callable, typename T, std::size_t... Lanes>
-    POET_FORCEINLINE constexpr void
-      emit_carried(Callable &callable, T index, T stride, std::index_sequence<Lanes...> /*seq*/) {
-        ((invoke_lane<Lanes>(FormTag{}, callable, index), index += stride), ...);
-    }
-
-    template<typename FormTag, typename Callable, typename T, std::size_t Count>
-    POET_FORCEINLINE constexpr void emit_block(FormTag /*tag*/,
-      [[maybe_unused]] Callable &callable,
-      [[maybe_unused]] T base,
-      [[maybe_unused]] T stride) {
-        if constexpr (Count > 0) { emit_carried<FormTag>(callable, base, stride, std::make_index_sequence<Count>{}); }
-    }
-
-    template<std::ptrdiff_t Step, typename FormTag, typename Callable, typename T, std::size_t... Lanes>
-    POET_FORCEINLINE constexpr void
-      emit_carried_ct(Callable &callable, T index, std::index_sequence<Lanes...> /*seq*/) {
-        ((invoke_lane<Lanes>(FormTag{}, callable, index), index += static_cast<T>(Step)), ...);
-    }
-
-    template<std::ptrdiff_t Step, typename FormTag, typename Callable, typename T, std::size_t Count>
-    POET_FORCEINLINE constexpr void
-      emit_block_ct(FormTag /*tag*/, [[maybe_unused]] Callable &callable, [[maybe_unused]] T base) {
-        if constexpr (Count > 0) { emit_carried_ct<Step, FormTag>(callable, base, std::make_index_sequence<Count>{}); }
-    }
-
-    // Handles a leftover count in [0, N) by emitting at most log2(N) fixed-size unrolled
-    // blocks — picks the largest power of two <= N/2, optionally emits it, then recurses on
-    // the remainder. Each level has a compile-time `half`, so codegen stays fully unrolled.
-    template<std::size_t N, typename FormTag, typename Callable, typename T>
-    POET_FORCEINLINE void tail_binary(std::size_t count, Callable &callable, T index, T stride) {
-        if constexpr (N <= 1) {
+    /// True when the stride runs backward.
+    ///
+    /// An unsigned `T` carries a "negative" stride wrapped into the top half of
+    /// its range, so that counts as backward iteration too. Phrased as
+    /// `if constexpr` because `stride < 0` is not merely false for an unsigned
+    /// `T`, it is a comparison the compiler is right to complain about.
+    template<typename T> POET_FORCEINLINE constexpr auto is_backward(T stride) noexcept -> bool {
+        if constexpr (std::is_signed_v<T>) {
+            return stride < 0;
         } else {
-            // Largest power of two strictly less than N — the block size we might emit here.
-            constexpr std::size_t half = []() constexpr -> std::size_t {
-                std::size_t pow2 = 1;
-                while (pow2 * 2 < N) { pow2 *= 2; }
-                return pow2;
-            }();
-            // If this level fires, it consumes exactly `half` iterations; otherwise all
-            // `count` pass through to the smaller level.
-            const std::size_t rem = (count >= half) ? (count - half) : count;
-            tail_binary<half, FormTag>(rem, callable, index, stride);
-            if (count >= half) {
-                // Smaller blocks run first over the low indices; this block picks up at
-                // `index + rem*stride` so iteration order is preserved.
-                emit_block<FormTag, Callable, T, half>(
-                  FormTag{}, callable, static_cast<T>(index + (static_cast<T>(rem) * stride)), stride);
-            }
+            return stride > (std::numeric_limits<T>::max() / 2);
         }
     }
 
-    template<std::size_t N, typename FormTag, typename Callable, typename T>
-    POET_NOINLINE_FLATTEN void tail_binary_noinline(std::size_t count, Callable &callable, T index, T stride) {
-        tail_binary<N, FormTag>(count, callable, index, stride);
+    POET_FORCEINLINE constexpr auto is_power_of_two(std::size_t value) noexcept -> bool {
+        return (value & (value - 1)) == 0;
     }
 
-    template<std::size_t N, std::ptrdiff_t Step, typename FormTag, typename Callable, typename T>
-    POET_FORCEINLINE void tail_binary_ct(std::size_t count, Callable &callable, T index) {
-        if constexpr (N <= 1) {
-        } else {
-            constexpr std::size_t half = []() constexpr -> std::size_t {
-                std::size_t pow2 = 1;
-                while (pow2 * 2 < N) { pow2 *= 2; }
-                return pow2;
-            }();
-            const std::size_t rem = (count >= half) ? (count - half) : count;
-            tail_binary_ct<half, Step, FormTag>(rem, callable, index);
-            if (count >= half) {
-                emit_block_ct<Step, FormTag, Callable, T, half>(
-                  FormTag{}, callable, static_cast<T>(index + static_cast<T>(static_cast<std::ptrdiff_t>(rem) * Step)));
-            }
+    /// \brief Number of iterations in `[begin, end)` at the given stride.
+    ///
+    /// One formulation covers both stride flavours: when the stride is a
+    /// `static_stride` literal, the direction test and the power-of-two test
+    /// constant-fold, leaving the same arithmetic a hand-written
+    /// compile-time-stride loop would emit.
+    template<typename T, typename Stride>
+    POET_FORCEINLINE constexpr auto iteration_count(T begin, T end, Stride stride_in) -> std::size_t {
+        using unsigned_t = std::make_unsigned_t<T>;
+        const T stride = stride_of<T>(stride_in);
+
+        // Every public overload asserts `Step != 0`, so only a runtime stride can
+        // still be zero here -- and dividing by it below would be UB.
+        if constexpr (std::is_integral_v<Stride>) {
+            if (POET_UNLIKELY(stride == 0)) { return 0; }
         }
-    }
 
-    template<std::size_t N, std::ptrdiff_t Step, typename FormTag, typename Callable, typename T>
-    POET_NOINLINE_FLATTEN void tail_binary_ct_noinline(std::size_t count, Callable &callable, T index) {
-        tail_binary_ct<N, Step, FormTag>(count, callable, index);
-    }
-
-    // Handles signed and unsigned-wrapped-negative strides uniformly. For unsigned T, a
-    // "negative" stride arrives as a large positive value (> half_max); we detect and flip
-    // it so both directions share the same (dist + |stride| - 1) / |stride| ceiling formula.
-    template<typename T>
-    POET_FORCEINLINE constexpr auto calculate_iteration_count_complex(T begin, T end, T stride) -> std::size_t {
-        constexpr bool is_unsigned = !std::is_signed_v<T>;
-        constexpr T half_max = std::numeric_limits<T>::max() / 2;
-        const bool is_wrapped_negative = is_unsigned && (stride > half_max);
-
-        if (POET_UNLIKELY(stride < 0 || is_wrapped_negative)) {
-            // Descending: empty unless begin > end.
+        if (POET_UNLIKELY(is_backward(stride))) {
             if (POET_UNLIKELY(begin <= end)) { return 0; }
-            T abs_stride;
-            if constexpr (std::is_signed_v<T>) {
-                abs_stride = static_cast<T>(-stride);
-            } else {
-                // Unsigned two's-complement negation recovers the original magnitude.
-                abs_stride = static_cast<T>(0) - stride;
+            // Negate at T's width, where wrapping is defined: that recovers `2`
+            // from a signed `-2` and from an unsigned `T(-2)` alike, whereas
+            // negating in size_t would zero-extend the latter first. Spelled
+            // `0 - x` because the deliberate wrap is what MSVC flags as C4146.
+            const auto negated = static_cast<unsigned_t>(unsigned_t{ 0 } - static_cast<unsigned_t>(stride));
+            const auto magnitude = static_cast<std::size_t>(negated);
+            return ((static_cast<std::size_t>(begin - end) + magnitude) - 1) / magnitude;
+        }
+
+        if (POET_UNLIKELY(begin >= end)) { return 0; }
+
+        const auto magnitude = static_cast<std::size_t>(stride);
+        const std::size_t span = (static_cast<std::size_t>(end - begin) + magnitude) - 1;
+        // Power-of-two strides — which includes the dominant stride==1 case —
+        // shift instead of dividing.
+        if (POET_LIKELY(is_power_of_two(magnitude))) { return span >> count_trailing_zeros(magnitude); }
+        return span / magnitude;
+    }
+
+    // ========================================================================
+    // Block emission
+    // ========================================================================
+
+    /// Carried index (`index += stride`) rather than `base + Lane * stride`:
+    /// the dependence between lanes stops GCC's SLP vectorizer from packing the
+    /// index computations into a vector and spilling registers, while leaving
+    /// the per-lane accumulators independent.
+    template<bool WantsLane, typename Func, typename T, typename Stride, std::size_t... Lanes, typename... Args>
+    POET_FORCEINLINE constexpr void
+      emit_lanes(Func &func, T index, Stride stride, std::index_sequence<Lanes...> /*lanes*/, Args... args) {
+        ((invoke_lane<WantsLane, Lanes>(func, index, args...), index += stride_of<T>(stride)), ...);
+    }
+
+    /// One fully unrolled block of `Count` iterations starting at `index`.
+    template<std::size_t Count, bool WantsLane, typename Func, typename T, typename Stride, typename... Args>
+    POET_FORCEINLINE constexpr void emit_block(Func &func, T index, Stride stride, Args... args) {
+        emit_lanes<WantsLane>(func, index, stride, std::make_index_sequence<Count>{}, args...);
+    }
+
+    // ========================================================================
+    // Binary decomposition tail
+    // ========================================================================
+
+    /// Largest power of two strictly below `bound` (`bound >= 2`).
+    constexpr auto half_below(std::size_t bound) noexcept -> std::size_t {
+        std::size_t pow2 = 1;
+        while (pow2 * 2 < bound) { pow2 *= 2; }
+        return pow2;
+    }
+
+    /// \brief Runs the final 0..N-1 iterations by halving the envelope.
+    ///
+    /// Each level spends one branch deciding whether its upper half is present
+    /// and emits that half as a fully unrolled block, so the tail costs
+    /// O(log2 N) branches rather than the O(N) of a linear cascade. Technique
+    /// from Andrei Alexandrescu's CppCon 2025 talk.
+    template<std::size_t N, bool WantsLane, typename Func, typename T, typename Stride, typename... Args>
+    POET_FORCEINLINE void tail_binary(std::size_t count, Func &func, T index, Stride stride, Args... args) {
+        if constexpr (N > 1) {
+            constexpr std::size_t half = half_below(N);
+            const std::size_t rem = (count >= half) ? (count - half) : count;
+            tail_binary<half, WantsLane>(rem, func, index, stride, args...);
+            if (count >= half) {
+                const T offset = static_cast<T>(rem) * stride_of<T>(stride);
+                emit_block<half, WantsLane>(func, static_cast<T>(index + offset), stride, args...);
             }
-            auto dist = static_cast<std::size_t>(begin - end);
-            auto ustride = static_cast<std::size_t>(abs_stride);
-            return (dist + ustride - 1) / ustride;
-        }
-
-        if (begin >= end) { return 0; }
-
-        auto dist = static_cast<std::size_t>(end - begin);
-        auto ustride = static_cast<std::size_t>(stride);
-        // Classic `x & (x-1) == 0` power-of-two test; replaces the divide with a shift.
-        // Worth ~18x cycles on znver4 (`tzcntq+shrxq` ≈ 1c block-RT vs `divq` ≈ 18c) —
-        // see /tmp/poet-asm/SUMMARY.md (T5) for the simdref+llvm-mca cross-check.
-        const bool is_power_of_2 = (ustride & (ustride - 1)) == 0;
-
-        if (is_power_of_2) {
-            const unsigned int shift = poet_count_trailing_zeros(ustride);
-            return (dist + ustride - 1) >> shift;
-        }
-        return (dist + ustride - 1) / ustride;
-    }
-
-    template<std::ptrdiff_t Step, typename T>
-    POET_FORCEINLINE constexpr auto calculate_iteration_count_ct(T begin, T end) -> std::size_t {
-        static_assert(Step != 0, "Step must be non-zero");
-        if constexpr (Step > 0) {
-            if (begin >= end) { return 0; }
-            auto dist = static_cast<std::size_t>(end - begin);
-            constexpr auto ustride = static_cast<std::size_t>(Step);
-            return (dist + ustride - 1) / ustride;
-        } else {
-            if (begin <= end) { return 0; }
-            auto dist = static_cast<std::size_t>(begin - end);
-            constexpr auto ustride = static_cast<std::size_t>(-Step);
-            return (dist + ustride - 1) / ustride;
         }
     }
 
-    template<typename T, typename Callable, std::size_t Unroll, typename FormTag>
-    POET_HOT_LOOP void
-      dynamic_for_impl_general(const T begin, const T end, const T stride, Callable &callable, const FormTag tag) {
-        if (POET_UNLIKELY(stride == 0)) { return; }
+    /// The same tail, kept out of line so its register allocation cannot perturb
+    /// the hot loop's. `flatten` stops GCC's ISRA pass from re-outlining each
+    /// functor body inside it, which would reload loop constants per call.
+    template<std::size_t N, bool WantsLane, typename Func, typename T, typename Stride, typename... Args>
+    POET_NOINLINE_FLATTEN void
+      tail_binary_outlined(std::size_t count, Func &func, T index, Stride stride, Args... args) {
+        tail_binary<N, WantsLane>(count, func, index, stride, args...);
+    }
 
-        std::size_t count = calculate_iteration_count_complex(begin, end, stride);
+    POET_PUSH_OPTIMIZE
+
+    // ========================================================================
+    // Fused implementation
+    // ========================================================================
+
+    /// \brief The whole of dynamic_for: main unrolled loop plus binary tail.
+    ///
+    /// `Args...` are loop-invariant "hot" values threaded by value through every
+    /// level. Passing them as named parameters rather than closure fields keeps
+    /// them in registers: GCC fails to scalar-replace a closure holding large
+    /// types (AVX-512 zmm values, say) and reloads it once per iteration.
+    template<std::size_t Unroll, bool WantsLane, typename T, typename Func, typename Stride, typename... Args>
+    POET_HOT_LOOP void run_loop(const T begin, const T end, Stride stride, Func &func, Args... args) {
+        const std::size_t count = iteration_count(begin, end, stride);
         if (POET_UNLIKELY(count == 0)) { return; }
 
+        T index = begin;
+
         if constexpr (Unroll == 1) {
-            T index = begin;
             for (std::size_t i = 0; i < count; ++i) {
-                invoke_lane<0>(tag, callable, index);
-                index += stride;
+                invoke_lane<WantsLane, 0>(func, index, args...);
+                index += stride_of<T>(stride);
             }
+        } else if (POET_UNLIKELY(count < Unroll)) {
+            // Tiny range: there is no main loop to run, so inline the tail and
+            // keep the lane constants visible.
+            tail_binary<Unroll, WantsLane>(count, func, index, stride, args...);
         } else {
-            T index = begin;
+            const T block_step = static_cast<T>(Unroll) * stride_of<T>(stride);
             std::size_t remaining = count;
-
-            if (POET_UNLIKELY(count < Unroll)) {
-                if (count > 0) { tail_binary<Unroll, FormTag>(count, callable, index, stride); }
-                return;
-            }
-
-            const T stride_times_unroll = static_cast<T>(Unroll) * stride;
             while (remaining >= Unroll) {
-                emit_block<FormTag, Callable, T, Unroll>(tag, callable, index, stride);
-                index += stride_times_unroll;
+                emit_block<Unroll, WantsLane>(func, index, stride, args...);
+                index += block_step;
                 remaining -= Unroll;
             }
-
-            if (remaining > 0) { tail_binary_noinline<Unroll, FormTag>(remaining, callable, index, stride); }
+            if (remaining > 0) { tail_binary_outlined<Unroll, WantsLane>(remaining, func, index, stride, args...); }
         }
     }
 
-    template<std::ptrdiff_t Step, typename T, typename Callable, std::size_t Unroll, typename FormTag>
-    POET_HOT_LOOP void dynamic_for_impl_ct_stride(const T begin, const T end, Callable &callable, const FormTag tag) {
-        std::size_t count = calculate_iteration_count_ct<Step>(begin, end);
-        if (POET_UNLIKELY(count == 0)) { return; }
+    POET_POP_OPTIMIZE
 
-        if constexpr (Unroll == 1) {
-            T index = begin;
-            constexpr T ct_stride = static_cast<T>(Step);
-            for (std::size_t i = 0; i < count; ++i) {
-                invoke_lane<0>(tag, callable, index);
-                index += ct_stride;
-            }
-        } else {
-            T index = begin;
-            std::size_t remaining = count;
-
-            if (POET_UNLIKELY(count < Unroll)) {
-                if (count > 0) { tail_binary_ct<Unroll, Step, FormTag>(count, callable, index); }
-                return;
-            }
-
-            constexpr T stride_times_unroll = static_cast<T>(static_cast<std::ptrdiff_t>(Unroll) * Step);
-            while (remaining >= Unroll) {
-                emit_block_ct<Step, FormTag, Callable, T, Unroll>(tag, callable, index);
-                index += stride_times_unroll;
-                remaining -= Unroll;
-            }
-
-            if (remaining > 0) { tail_binary_ct_noinline<Unroll, Step, FormTag>(remaining, callable, index); }
-        }
-    }
+    /// Binds an lvalue callable as-is; materialises an rvalue into a named local
+    /// so `run_loop` can take it by reference without a lambda indirection.
+    template<typename Func>
+    using callable_storage_t =
+      std::conditional_t<std::is_lvalue_reference_v<Func>, Func, std::remove_reference_t<Func>>;
 
 }// namespace detail
 
@@ -754,79 +837,125 @@ namespace detail {
 // Public API
 // ============================================================================
 
-/// \brief Runs `[begin, end)` with compile-time unrolled blocks.
+/// \brief Executes a runtime-sized loop using compile-time unrolling.
 ///
-/// `func` may take `(index)` or `(lane, index)`, where `lane` is
-/// `std::integral_constant<std::size_t, L>`. Use the lane form for
-/// multi-accumulator kernels; prefer a plain `for` loop for trivial index-only work.
-template<std::size_t Unroll, typename T1, typename T2, typename T3, typename Func>
-POET_FORCEINLINE constexpr void dynamic_for(T1 begin, T2 end, T3 step, Func &&func) {
+/// Iterates over `[begin, end)` with the given `step`, emitting blocks of
+/// `Unroll` iterations. `step == 1` is routed to the compile-time-stride path,
+/// which folds the per-lane stride arithmetic to constants.
+///
+/// \tparam Unroll Iterations emitted per unrolled block. No default: choose it
+///   per call site. Typical starting points: `2` (small codegen), `4`
+///   (balanced), `8` (profiled hot loops), `1` (plain loop, no dispatch).
+/// \param begin Inclusive start bound.
+/// \param end Exclusive end bound.
+/// \param step Increment per iteration. May be negative.
+/// \param func Callable invoked per iteration, in either form:
+///   - `func(std::integral_constant<std::size_t, lane>{}, index)` — lane as type
+///   - `func(index)` — index only
+template<std::size_t Unroll,
+  typename T1,
+  typename T2,
+  typename T3,
+  typename Func,
+  std::enable_if_t<detail::is_df_callable_v<std::remove_reference_t<Func>, std::common_type_t<T1, T2, T3>>, int> = 0>
+POET_FORCEINLINE void dynamic_for(T1 begin, T2 end, T3 step, Func &&func) {
     static_assert(Unroll > 0, "dynamic_for requires Unroll > 0");
 
     using T = std::common_type_t<T1, T2, T3>;
+    constexpr bool lane = detail::wants_lane_v<std::remove_reference_t<Func>, T>;
+
+    detail::callable_storage_t<Func> callable(std::forward<Func>(func));
     const T stride = static_cast<T>(step);
 
-    auto run = [&](auto &callable) POET_ALWAYS_INLINE_LAMBDA -> void {
-        using callable_t = std::remove_reference_t<decltype(callable)>;
-        using form_tag = detail::callable_form_t<callable_t, T>;
-        if (stride == static_cast<T>(1)) {
-            detail::dynamic_for_impl_ct_stride<1, T, callable_t, Unroll>(
-              static_cast<T>(begin), static_cast<T>(end), callable, form_tag{});
-        } else {
-            detail::dynamic_for_impl_general<T, callable_t, Unroll>(
-              static_cast<T>(begin), static_cast<T>(end), stride, callable, form_tag{});
-        }
-    };
-
-    if constexpr (std::is_lvalue_reference_v<Func>) {
-        run(func);
+    if (stride == static_cast<T>(1)) {
+        detail::run_loop<Unroll, lane>(
+          static_cast<T>(begin), static_cast<T>(end), detail::static_stride<1>{}, callable);
     } else {
-        std::remove_reference_t<Func> local(std::forward<Func>(func));
-        run(local);
+        detail::run_loop<Unroll, lane>(static_cast<T>(begin), static_cast<T>(end), stride, callable);
     }
 }
 
-/// \brief Runs `[begin, end)` with a compile-time stride.
-template<std::size_t Unroll, std::ptrdiff_t Step, typename T1, typename T2, typename Func>
-POET_FORCEINLINE constexpr void dynamic_for(T1 begin, T2 end, Func &&func) {
+/// \brief Executes a runtime-sized loop with a compile-time stride.
+///
+/// With the stride as a template parameter the per-lane multiplications become
+/// compile-time constants, the tail carries no stride argument, and the
+/// direction test in the iteration count folds away.
+///
+/// \tparam Unroll Iterations emitted per unrolled block.
+/// \tparam Step Compile-time stride (must be non-zero).
+template<std::size_t Unroll,
+  std::ptrdiff_t Step,
+  typename T1,
+  typename T2,
+  typename Func,
+  std::enable_if_t<detail::is_df_callable_v<std::remove_reference_t<Func>, std::common_type_t<T1, T2>>, int> = 0>
+POET_FORCEINLINE void dynamic_for(T1 begin, T2 end, Func &&func) {
     static_assert(Unroll > 0, "dynamic_for requires Unroll > 0");
     static_assert(Step != 0, "dynamic_for requires Step != 0");
 
     using T = std::common_type_t<T1, T2>;
+    detail::callable_storage_t<Func> callable(std::forward<Func>(func));
 
-    auto run = [&](auto &callable) POET_ALWAYS_INLINE_LAMBDA -> void {
-        using callable_t = std::remove_reference_t<decltype(callable)>;
-        using form_tag = detail::callable_form_t<callable_t, T>;
-        detail::dynamic_for_impl_ct_stride<Step, T, callable_t, Unroll>(
-          static_cast<T>(begin), static_cast<T>(end), callable, form_tag{});
-    };
-
-    if constexpr (std::is_lvalue_reference_v<Func>) {
-        run(func);
-    } else {
-        std::remove_reference_t<Func> local(std::forward<Func>(func));
-        run(local);
-    }
+    detail::run_loop<Unroll, detail::wants_lane_v<std::remove_reference_t<Func>, T>>(
+      static_cast<T>(begin), static_cast<T>(end), detail::static_stride<Step>{}, callable);
 }
 
-#ifndef DOXYGEN_SHOULD_SKIP_THIS
-/// \brief Runs `[begin, end)` with an inferred step of `+1` or `-1`.
-template<std::size_t Unroll, typename T1, typename T2, typename Func>
-POET_FORCEINLINE constexpr void dynamic_for(T1 begin, T2 end, Func &&func) {
+/// \brief Executes a runtime-sized loop, inferring the step direction.
+///
+/// The step is `+1` when `begin <= end` and `-1` otherwise.
+template<std::size_t Unroll,
+  typename T1,
+  typename T2,
+  typename Func,
+  std::enable_if_t<detail::is_df_callable_v<std::remove_reference_t<Func>, std::common_type_t<T1, T2>>, int> = 0>
+POET_FORCEINLINE void dynamic_for(T1 begin, T2 end, Func &&func) {
     using T = std::common_type_t<T1, T2>;
-    T s_begin = static_cast<T>(begin);
-    T s_end = static_cast<T>(end);
-    T step = (s_begin <= s_end) ? static_cast<T>(1) : static_cast<T>(-1);
-
-    dynamic_for<Unroll>(s_begin, s_end, step, std::forward<Func>(func));
+    const auto first = static_cast<T>(begin);
+    const auto last = static_cast<T>(end);
+    dynamic_for<Unroll>(first, last, first <= last ? static_cast<T>(1) : static_cast<T>(-1), std::forward<Func>(func));
 }
 
-/// \brief Convenience overload for `[0, count)`.
-template<std::size_t Unroll, typename Func>
-POET_FORCEINLINE constexpr void dynamic_for(std::size_t count, Func &&func) {
-    dynamic_for<Unroll>(static_cast<std::size_t>(0), count, std::size_t{ 1 }, std::forward<Func>(func));
+/// \brief Executes a runtime-sized loop over `[0, count)`.
+template<std::size_t Unroll,
+  typename Func,
+  std::enable_if_t<detail::is_df_callable_v<std::remove_reference_t<Func>, std::size_t>, int> = 0>
+POET_FORCEINLINE void dynamic_for(std::size_t count, Func &&func) {
+    dynamic_for<Unroll, 1>(std::size_t{ 0 }, count, std::forward<Func>(func));
 }
-#endif
+
+/// \brief Executes a runtime-sized loop over `[0, count)`, passing loop-invariant
+/// "hot" values to the callable by value instead of through a closure.
+///
+/// GCC fails to scalar-replace a capturing lambda's closure when it holds large
+/// types (AVX-512 zmm values, say): the closure is spilled to the stack and
+/// reloaded every iteration even with full inlining. Naming those values as
+/// by-value parameters at every level keeps them in registers instead.
+///
+/// Overload resolution stays unambiguous because this form requires at least
+/// one hot argument, so a zero-arg call still selects the `(count, func)` form.
+///
+/// \tparam Unroll Iterations emitted per unrolled block.
+/// \tparam Step Compile-time stride (must be non-zero).
+/// \param count Iteration count, i.e. the range `[0, count)`.
+/// \param func Callable `void(T index, HotArgs...)`. Do not also capture the hot
+///   values — that would reintroduce the closure this form exists to avoid.
+/// \param args Loop-invariant values forwarded by value at each level.
+template<std::size_t Unroll,
+  std::ptrdiff_t Step = 1,
+  typename Func,
+  typename... Args,
+  std::enable_if_t<(sizeof...(Args) >= 1)
+                     && detail::is_df_callable_v<std::remove_reference_t<Func>, std::size_t, Args...>,
+    int> = 0>
+POET_FORCEINLINE void dynamic_for(std::size_t count, Func &&func, Args... args) {
+    static_assert(Unroll > 0, "dynamic_for requires Unroll > 0");
+    static_assert(Step != 0, "dynamic_for requires Step != 0");
+
+    detail::callable_storage_t<Func> callable(std::forward<Func>(func));
+
+    detail::run_loop<Unroll, detail::wants_lane_v<std::remove_reference_t<Func>, std::size_t, Args...>>(
+      std::size_t{ 0 }, count, detail::static_stride<Step>{}, callable, args...);
+}
 
 }// namespace poet
 
@@ -837,34 +966,43 @@ POET_FORCEINLINE constexpr void dynamic_for(std::size_t count, Func &&func) {
 
 namespace poet {
 
+/// Holds the user callable for the `range | make_dynamic_for<N>(f)` form.
+/// `Func` is deduced, `Unroll` is not, hence the ordering.
 template<typename Func, std::size_t Unroll> struct dynamic_for_adaptor {
     Func func;
     constexpr explicit dynamic_for_adaptor(Func f) : func(std::move(f)) {}
 };
 
-template<typename Func, std::size_t Unroll, typename Range>
-requires std::ranges::range<Range> void operator|(Range const &r, dynamic_for_adaptor<Func, Unroll> const &ad) {
-    auto it = std::ranges::begin(r);
-    auto it_end = std::ranges::end(r);
+/// Runs the callable over the range's elements.
+///
+/// Random access is required because the unrolled body indexes off `begin`
+/// rather than advancing an iterator, which is also what keeps the lane
+/// constants compile-time.
+template<typename Func, std::size_t Unroll, std::ranges::random_access_range Range>
+void operator|(Range &&r, dynamic_for_adaptor<Func, Unroll> const &ad) {
+    const auto first = std::ranges::begin(r);
+    const auto at = [first](std::size_t pos) -> decltype(auto) {
+        return first[static_cast<std::ranges::range_difference_t<Range>>(pos)];
+    };
+    // O(1) whenever the sentinel can be subtracted, which random access usually
+    // implies; `ranges::size` would reject views like `iota(0) | take(n)`.
+    const auto count = static_cast<std::size_t>(std::ranges::distance(r));
 
-    if (it == it_end) return;// empty range
-
-    using ValT = std::remove_reference_t<decltype(*it)>;
-    ValT start = *it;
-
-    std::size_t count = 0;
-    for (auto jt = it; jt != it_end; ++jt) ++count;
-
-    // Treat the range as a consecutive [start, start + count) sequence.
-    poet::dynamic_for<Unroll>(start, static_cast<ValT>(start + static_cast<ValT>(count)), ad.func);
+    if constexpr (detail::wants_lane_v<Func, std::ranges::range_reference_t<Range>>) {
+        dynamic_for<Unroll>(count, [&](auto lane, std::size_t pos) { ad.func(lane, at(pos)); });
+    } else {
+        dynamic_for<Unroll>(count, [&](std::size_t pos) { ad.func(at(pos)); });
+    }
 }
 
+/// Tuple-like `(begin, end, step)` source.
 template<typename Func, std::size_t Unroll, typename B, typename E, typename S>
 void operator|(std::tuple<B, E, S> const &t, dynamic_for_adaptor<Func, Unroll> const &ad) {
-    auto [b, e, s] = t;
+    const auto [b, e, s] = t;
     poet::dynamic_for<Unroll>(b, e, s, ad.func);
 }
 
+/// Deduces `Func` so only `Unroll` has to be spelled out.
 template<std::size_t U, typename F> constexpr auto make_dynamic_for(F &&f) -> dynamic_for_adaptor<std::decay_t<F>, U> {
     return dynamic_for_adaptor<std::decay_t<F>, U>(std::forward<F>(f));
 }
@@ -887,7 +1025,6 @@ template<std::size_t U, typename F> constexpr auto make_dynamic_for(F &&f) -> dy
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <variant>
 
 /* Begin inline (angle): include/poet/core/macros.hpp */
 /* Skipped already inlined: include/poet/core/macros.hpp */
@@ -898,8 +1035,8 @@ template<std::size_t U, typename F> constexpr auto make_dynamic_for(F &&f) -> dy
 /// \file mdspan_utils.hpp
 /// \brief Multidimensional index utilities for N-D dispatch table generation.
 ///
-/// Provides row-major stride computation and total-size calculation used by
-/// the N-D function-pointer-table dispatch in dispatch.hpp.
+/// Provides the row-major stride computation used by the N-D
+/// function-pointer-table dispatch in dispatch.hpp.
 
 #include <array>
 #include <cstddef>
@@ -908,14 +1045,6 @@ template<std::size_t U, typename F> constexpr auto make_dynamic_for(F &&f) -> dy
 /* End inline (angle): include/poet/core/macros.hpp */
 
 namespace poet::detail {
-
-/// Total size (product of all dimensions).
-template<std::size_t N>
-POET_CPP20_CONSTEVAL auto compute_total_size(const std::array<std::size_t, N> &dims) -> std::size_t {
-    std::size_t total = 1;
-    for (std::size_t i = 0; i < N; ++i) { total *= dims[i]; }
-    return total;
-}
 
 /// Compute row-major strides. stride[i] = product of dims[i+1..N-1].
 template<std::size_t N>
@@ -939,8 +1068,10 @@ template<auto... Vs> struct tuple_ {};
 
 namespace detail {
 
-    template<typename T>
-    using result_holder = std::conditional_t<std::is_void_v<T>, std::optional<std::monostate>, std::optional<T>>;
+    /// Payload for void-returning dispatch, so a match is still an engaged optional.
+    struct void_result {};
+
+    template<typename T> using result_holder = std::optional<std::conditional_t<std::is_void_v<T>, void_result, T>>;
 
     template<typename Functor, typename ResultType, typename RuntimeTuple, typename... Args> struct seq_matcher;
 
@@ -952,15 +1083,16 @@ namespace detail {
       typename... Args>
     struct seq_matcher<std::integer_sequence<ValueType, V...>, ResultType, RuntimeTuple, Functor, Args...> {
         template<std::size_t... Idx, typename F>
-        static auto
-          impl(std::index_sequence<Idx...> /*idx_seq*/, const RuntimeTuple &runtime_tuple, F &&func, Args &&...args)
-            -> result_holder<ResultType> {
+        static auto impl(std::index_sequence<Idx...> /*idx_seq*/,
+          const RuntimeTuple &runtime_tuple,
+          F &&func,
+          Args &&...args) -> result_holder<ResultType> {
             result_holder<ResultType> res;
             // Short-circuiting AND fold: all runtime slots must equal their compile-time counterparts.
             if (((std::get<Idx>(runtime_tuple) == V) && ...)) {
                 if constexpr (std::is_void_v<ResultType>) {
                     std::forward<F>(func).template operator()<V...>(std::forward<Args>(args)...);
-                    res = std::monostate{};
+                    res = void_result{};
                 } else {
                     res = std::forward<F>(func).template operator()<V...>(std::forward<Args>(args)...);
                 }
@@ -969,8 +1101,8 @@ namespace detail {
         }
 
         template<typename F>
-        static auto match_and_call(const RuntimeTuple &runtime_tuple, F &&func, Args &&...args)
-          -> result_holder<ResultType> {
+        static auto
+          match_and_call(const RuntimeTuple &runtime_tuple, F &&func, Args &&...args) -> result_holder<ResultType> {
             return impl(std::make_index_sequence<sizeof...(V)>{},
               runtime_tuple,
               std::forward<F>(func),
@@ -1024,25 +1156,39 @@ namespace detail {
     struct sequence_size<std::integer_sequence<T, Values...>>
       : std::integral_constant<std::size_t, sizeof...(Values)> {};
 
+    template<typename Sequence> struct sequence_first;
+
+    template<int First, int... Rest>
+    struct sequence_first<std::integer_sequence<int, First, Rest...>> : std::integral_constant<int, First> {};
+
+    /// True when the values form a unit-stride run, ascending or descending.
+    ///
+    /// Monotonicity is required, not merely a span equal to the value count:
+    /// `seq_lookup` resolves these by `position == distance from First`, which a
+    /// permutation such as `{2, 0, 1}` satisfies in span but not in position.
+    template<int... Values> POET_CPP20_CONSTEVAL auto is_unit_stride() noexcept -> bool {
+        constexpr std::size_t count = sizeof...(Values);
+        if constexpr (count < 2) {
+            return true;
+        } else {
+            constexpr std::array<int, count> values = { Values... };
+            constexpr int step = values[1] - values[0];
+            if constexpr (step != 1 && step != -1) {
+                return false;
+            } else {
+                for (std::size_t i = 2; i < count; ++i) {
+                    if (values[i] - values[i - 1] != step) { return false; }
+                }
+                return true;
+            }
+        }
+    }
+
     template<typename Seq> struct is_contiguous_sequence : std::false_type {};
 
     template<int First, int... Rest>
     struct is_contiguous_sequence<std::integer_sequence<int, First, Rest...>>
-      : std::bool_constant<(
-          std::max({ First, Rest... }) - std::min({ First, Rest... }) + 1 == static_cast<int>(1 + sizeof...(Rest)))> {};
-
-    template<typename ParamTuple, typename = std::make_index_sequence<std::tuple_size_v<std::decay_t<ParamTuple>>>>
-    struct all_contiguous;
-
-    template<typename ParamTuple, std::size_t... Idx>
-    struct all_contiguous<ParamTuple, std::index_sequence<Idx...>>
-      : std::bool_constant<(
-          is_contiguous_sequence<typename std::tuple_element_t<Idx, std::decay_t<ParamTuple>>::seq_type>::value
-          && ...)> {};
-
-    template<typename ParamTuple> inline constexpr bool all_contiguous_v = all_contiguous<ParamTuple>::value;
-
-    template<typename Sequence> struct sequence_first;
+      : std::bool_constant<is_unit_stride<First, Rest...>()> {};
 
     template<typename Seq> struct sparse_index;
 
@@ -1119,6 +1265,14 @@ namespace detail {
 
     inline constexpr std::size_t dispatch_npos = static_cast<std::size_t>(-1);
 
+    /// Maps a runtime value to its slot in `Seq`.
+    ///
+    /// `find` returns a slot in `[0, count)` on a hit and *some* value `>= count`
+    /// on a miss — deliberately not a fixed sentinel. The contiguous case can
+    /// then return its raw unsigned difference, whose natural underflow already
+    /// lands out of range, so a hit costs one subtraction and no select at all.
+    /// Callers test `idx < count`, which is the same single compare a sentinel
+    /// would need.
     template<typename Seq, bool IsContiguous = is_contiguous_sequence<Seq>::value> struct seq_lookup;
 
     template<int... Values> struct seq_lookup<std::integer_sequence<int, Values...>, true> {
@@ -1126,17 +1280,16 @@ namespace detail {
         static constexpr std::size_t len = sizeof...(Values);
         static constexpr bool ascending = (first == std::min({ Values... }));
 
+        static constexpr std::size_t count = len;
+
         static POET_FORCEINLINE auto find(int value) -> std::size_t {
-            // Unsigned subtraction folds "below first" into "far above len", so a single
-            // `idx < len` check handles both underflow and overflow with no extra branch.
-            std::size_t idx = 0;
+            // Unsigned subtraction sends "below first" far above `count`, so the
+            // caller's `idx < count` test covers underflow and overflow alike.
             if constexpr (ascending) {
-                idx = static_cast<std::size_t>(static_cast<unsigned int>(value) - static_cast<unsigned int>(first));
+                return static_cast<std::size_t>(static_cast<unsigned int>(value) - static_cast<unsigned int>(first));
             } else {
-                idx = static_cast<std::size_t>(static_cast<unsigned int>(first) - static_cast<unsigned int>(value));
+                return static_cast<std::size_t>(static_cast<unsigned int>(first) - static_cast<unsigned int>(value));
             }
-            if (idx < len) { return idx; }
-            return dispatch_npos;
         }
     };
 
@@ -1161,34 +1314,41 @@ namespace detail {
             }
         }();
 
+        static constexpr std::size_t count = sparse_data::value_count;
+
+        /// `indices` is a permutation of `[0, count)`, but neither compiler can
+        /// see that through the table load, so it re-checks the bound the caller
+        /// already applies. Stating the invariant drops the duplicate compare.
+        static POET_FORCEINLINE auto bounded(std::size_t slot) -> std::size_t {
+            if (slot >= count) { POET_UNREACHABLE(); }
+            return slot;
+        }
+
         static POET_FORCEINLINE auto find(int value) -> std::size_t {
             if constexpr (is_strided) {
                 static constexpr int first = sparse_data::keys[0];
                 static constexpr int stride = sparse_data::keys[1] - sparse_data::keys[0];
-                const int diff = value - first;
-                // Miss when below range or not aligned to the stride grid.
-                if (diff < 0 || diff % stride != 0) { return dispatch_npos; }
-                const auto idx = static_cast<std::size_t>(diff / stride);
+                // Unsigned, so "below first" wraps past the upper bound and the
+                // two range ends collapse into the single `slot >=` test below.
+                // Keys are sorted, so `stride` is positive and the division is a shift.
+                const auto diff = static_cast<unsigned int>(value) - static_cast<unsigned int>(first);
+                if (diff % static_cast<unsigned int>(stride) != 0) { return count; }
+                const auto slot = static_cast<std::size_t>(diff / static_cast<unsigned int>(stride));
+                if (slot >= sparse_data::unique_count) { return count; }
                 // Remap sorted position back to the user's declared slot.
-                if (idx < sparse_data::unique_count) { return sparse_data::indices[idx]; }
-                return dispatch_npos;
+                return bounded(sparse_data::indices[slot]);
             } else {
                 // Sorted keys → binary search; `indices` undoes the sort to the original slot.
                 const auto pos = std::lower_bound(sparse_data::keys.begin(), sparse_data::keys.end(), value);
-                if (pos != sparse_data::keys.end() && *pos == value) {
-                    return sparse_data::indices[static_cast<std::size_t>(pos - sparse_data::keys.begin())];
-                }
-                return dispatch_npos;
+                if (pos == sparse_data::keys.end() || *pos != value) { return count; }
+                return bounded(sparse_data::indices[static_cast<std::size_t>(pos - sparse_data::keys.begin())]);
             }
         }
     };
 
-    template<int First, int... Rest>
-    struct sequence_first<std::integer_sequence<int, First, Rest...>> : std::integral_constant<int, First> {};
-
     template<typename ParamTuple, std::size_t... Idx>
-    POET_CPP20_CONSTEVAL auto dimensions_of_impl(std::index_sequence<Idx...> /*idxs*/)
-      -> std::array<std::size_t, sizeof...(Idx)> {
+    POET_CPP20_CONSTEVAL auto dimensions_of_impl(
+      std::index_sequence<Idx...> /*idxs*/) -> std::array<std::size_t, sizeof...(Idx)> {
         using P = std::decay_t<ParamTuple>;
         return std::array<std::size_t, sizeof...(Idx)>{
             sequence_size<typename std::tuple_element_t<Idx, P>::seq_type>::value...
@@ -1200,60 +1360,32 @@ namespace detail {
         return dimensions_of_impl<ParamTuple>(std::make_index_sequence<std::tuple_size_v<std::decay_t<ParamTuple>>>{});
     }
 
+    /// Row-major flat index of the runtime coordinate, or `dispatch_npos` on a miss.
+    ///
+    /// Per-dimension lookup is `seq_lookup::find`, which already specialises to
+    /// index arithmetic, a div/mod, or a binary search depending on the sequence
+    /// shape — so there is one flattening path regardless of that shape.
     template<typename ParamTuple, std::size_t... Idx>
-    POET_FORCEINLINE auto flat_index_sparse(const ParamTuple &params, std::index_sequence<Idx...> /*idxs*/)
-      -> std::size_t {
+    POET_FORCEINLINE auto flat_index(const ParamTuple &params, std::index_sequence<Idx...> /*idxs*/) -> std::size_t {
         using P = std::decay_t<ParamTuple>;
         constexpr auto strides = compute_strides(dimensions_of<P>());
 
-        const std::array<std::size_t, sizeof...(Idx)> indices = {
-            seq_lookup<typename std::tuple_element_t<Idx, P>::seq_type>::find(std::get<Idx>(params).runtime_val)...
-        };
+        using lookup = std::tuple<seq_lookup<typename std::tuple_element_t<Idx, P>::seq_type>...>;
 
-        const bool all_hit = ((indices[Idx] != dispatch_npos) && ...);
-        if (POET_UNLIKELY(!all_hit)) { return dispatch_npos; }
+        const std::array<std::size_t, sizeof...(Idx)> found = { std::tuple_element_t<Idx, lookup>::find(
+          std::get<Idx>(params).runtime_val)... };
 
-        return ((indices[Idx] * strides[Idx]) + ...);
-    }
+        // Bitwise-AND fold (not logical) so no dimension's range test is
+        // short-circuited into a branch; the offset is summed unconditionally
+        // alongside it, since a miss discards it anyway.
+        const unsigned hit = ((static_cast<unsigned>(found[Idx] < std::tuple_element_t<Idx, lookup>::count)) & ...);
+        const std::size_t flat = ((found[Idx] * strides[Idx]) + ...);
 
-    template<typename Seq> POET_FORCEINLINE constexpr auto contiguous_offset(int value) noexcept -> std::size_t {
-        constexpr auto ufirst = static_cast<unsigned int>(sequence_first<Seq>::value);
-        const auto uval = static_cast<unsigned int>(value);
-        if constexpr (seq_lookup<Seq>::ascending) {
-            return static_cast<std::size_t>(uval - ufirst);
-        } else {
-            return static_cast<std::size_t>(ufirst - uval);
-        }
-    }
-
-    template<typename ParamTuple, std::size_t... Idx>
-    POET_FORCEINLINE auto flat_index_contiguous(const ParamTuple &params, std::index_sequence<Idx...> /*idxs*/)
-      -> std::size_t {
-        using P = std::decay_t<ParamTuple>;
-        constexpr auto strides = compute_strides(dimensions_of<P>());
-
-        const std::array<std::size_t, sizeof...(Idx)> mapped = {
-            contiguous_offset<typename std::tuple_element_t<Idx, P>::seq_type>(std::get<Idx>(params).runtime_val)...
-        };
-
-        // Bitwise-OR fold (not logical) so each bound check is evaluated branch-free;
-        // the aggregate OOB flag is consumed once at the bottom.
-        const std::size_t oob = (static_cast<std::size_t>(
-                                   mapped[Idx] >= sequence_size<typename std::tuple_element_t<Idx, P>::seq_type>::value)
-                                 | ...);
-
-        const std::size_t flat = ((mapped[Idx] * strides[Idx]) + ...);
-
-        return (oob == 0) ? flat : dispatch_npos;
+        return (hit != 0) ? flat : dispatch_npos;
     }
 
     template<typename ParamTuple> POET_FORCEINLINE auto extract_flat_index(const ParamTuple &params) -> std::size_t {
-        constexpr std::size_t num_dims = std::tuple_size_v<std::decay_t<ParamTuple>>;
-        if constexpr (all_contiguous_v<ParamTuple>) {
-            return flat_index_contiguous(params, std::make_index_sequence<num_dims>{});
-        } else {
-            return flat_index_sparse(params, std::make_index_sequence<num_dims>{});
-        }
+        return flat_index(params, std::make_index_sequence<std::tuple_size_v<std::decay_t<ParamTuple>>>{});
     }
 
     template<typename A, typename B> struct seq_equal;
@@ -1307,11 +1439,9 @@ namespace detail {
 
         // Detection of value-argument viability using std::is_invocable
         template<typename... Args>
-        static auto compute() -> decltype(compute_impl<Args...>(std::integral_constant<bool,
-          std::is_invocable_v<Functor &, std::integral_constant<int, sequence_first<Seq>::value>..., Args...>>{})) {
-            return compute_impl<Args...>(std::integral_constant<bool,
-              std::is_invocable_v<Functor &, std::integral_constant<int, sequence_first<Seq>::value>..., Args...>>{});
-        }
+        static auto compute()
+          -> decltype(compute_impl<Args...>(std::integral_constant<bool,
+            std::is_invocable_v<Functor &, std::integral_constant<int, sequence_first<Seq>::value>..., Args...>>{}));
     };
 
     template<typename Functor, typename SequenceTuple, typename... Args> struct dispatch_result;
@@ -1433,8 +1563,8 @@ namespace detail {
             using VE = decltype(make_ve(std::make_index_sequence<sizeof...(Seqs)>{}));
 
             template<typename R, std::size_t... SeqIdx>
-            static POET_FORCEINLINE auto invoke(Functor &func, std::index_sequence<SeqIdx...> /*idx*/, Args &&...args)
-              -> R {
+            static POET_FORCEINLINE auto
+              invoke(Functor &func, std::index_sequence<SeqIdx...> /*idx*/, Args &&...args) -> R {
                 using VE_local = value_extractor<FlatIdx, SeqIdx...>;
                 constexpr bool use_value_form =
                   std::is_invocable_v<Functor &, typename VE_local::template ic<SeqIdx>..., Args &&...>;
@@ -1508,13 +1638,13 @@ template<typename ValueType, typename... Tuples> struct dispatch_set {
   private:
     runtime_array_t runtime_val;
 
-  public:
-    template<typename... Args, typename = std::enable_if_t<sizeof...(Args) == tuple_arity>>
-    explicit dispatch_set(Args &&...args) : runtime_val{ static_cast<ValueType>(std::forward<Args>(args))... } {}
-
     template<std::size_t... Idx> [[nodiscard]] auto runtime_tuple_impl(std::index_sequence<Idx...> /*idxs*/) const {
         return std::make_tuple(runtime_val[Idx]...);
     }
+
+  public:
+    template<typename... Args, typename = std::enable_if_t<sizeof...(Args) == tuple_arity>>
+    explicit dispatch_set(Args &&...args) : runtime_val{ static_cast<ValueType>(std::forward<Args>(args))... } {}
 
     [[nodiscard]] auto runtime_tuple() const { return runtime_tuple_impl(std::make_index_sequence<tuple_arity>{}); }
 };
@@ -1556,7 +1686,7 @@ namespace detail {
         const int runtime_val = std::get<0>(params).runtime_val;
         const std::size_t idx = seq_lookup<Seq>::find(runtime_val);
 
-        if (idx != dispatch_npos) {
+        if (idx < seq_lookup<Seq>::count) {
             using FunctorT = std::decay_t<Functor>;
             static constexpr auto table = make_dispatch_table<FunctorT, arg_pack<Args...>, R>(Seq{});
             return invoke_table_entry<R>(functor, table[idx], std::forward<Args>(args)...);
@@ -1572,11 +1702,9 @@ namespace detail {
     POET_FORCEINLINE auto dispatch_nd(Functor &functor, ParamTuple const &params, Args &&...args) -> R {
         const std::size_t flat_idx = extract_flat_index(params);
         if (POET_LIKELY(flat_idx != dispatch_npos)) {
-            using sequences_t = decltype(extract_sequences<ParamTuple>());
-            static constexpr sequences_t sequences{};
-
             using FunctorT = std::decay_t<Functor>;
-            static constexpr auto table = make_nd_dispatch_table<FunctorT, arg_pack<Args...>, R>(sequences);
+            static constexpr auto table =
+              make_nd_dispatch_table<FunctorT, arg_pack<Args...>, R>(decltype(extract_sequences<ParamTuple>()){});
             return invoke_table_entry<R>(functor, table[flat_idx], std::forward<Args>(args)...);
         }
         if constexpr (ThrowOnNoMatch) {
@@ -1638,8 +1766,8 @@ namespace detail {
     // counting dispatch_param types until the first non-dispatch_param — everything after is
     // forwarded as plain args into the chosen specialisation.
     template<bool ThrowOnNoMatch, typename Functor, typename FirstParam, typename... Rest>
-    POET_FORCEINLINE auto dispatch_variadic_impl(Functor &functor, FirstParam &&first_param, Rest &&...rest)
-      -> decltype(auto) {
+    POET_FORCEINLINE auto
+      dispatch_variadic_impl(Functor &functor, FirstParam &&first_param, Rest &&...rest) -> decltype(auto) {
         // `first_param` is known to be a dispatch_param (enable_if on the public overload);
         // count contiguous dispatch_params in the rest, the remainder is the regular arg pack.
         constexpr std::size_t num_params = 1 + leading_param_count<Rest...>::value;
@@ -1736,20 +1864,22 @@ namespace detail {
 }// namespace detail
 
 /// \brief Dispatches using a `dispatch_set`.
-template<typename Functor, typename... Tuples, typename... Args>
-auto dispatch(Functor &&functor, const dispatch_set<Tuples...> &set, Args &&...args) -> decltype(auto) {
+template<typename Functor, typename ValueType, typename... Tuples, typename... Args>
+auto dispatch(Functor &&functor, const dispatch_set<ValueType, Tuples...> &set, Args &&...args) -> decltype(auto) {
     return detail::dispatch_tuples_impl<false>(std::forward<Functor>(functor),
-      typename dispatch_set<Tuples...>::seq_type{},
+      typename dispatch_set<ValueType, Tuples...>::seq_type{},
       set.runtime_tuple(),
       std::forward<Args>(args)...);
 }
 
 /// \brief Throwing overload for `dispatch_set` dispatch.
-template<typename Functor, typename... Tuples, typename... Args>
-auto dispatch(throw_on_no_match_t /*tag*/, Functor &&functor, const dispatch_set<Tuples...> &set, Args &&...args)
-  -> decltype(auto) {
+template<typename Functor, typename ValueType, typename... Tuples, typename... Args>
+auto dispatch(throw_on_no_match_t /*tag*/,
+  Functor &&functor,
+  const dispatch_set<ValueType, Tuples...> &set,
+  Args &&...args) -> decltype(auto) {
     return detail::dispatch_tuples_impl<true>(std::forward<Functor>(functor),
-      typename dispatch_set<Tuples...>::seq_type{},
+      typename dispatch_set<ValueType, Tuples...>::seq_type{},
       set.runtime_tuple(),
       std::forward<Args>(args)...);
 }
@@ -1824,26 +1954,32 @@ template<std::ptrdiff_t Begin, std::ptrdiff_t End, std::ptrdiff_t Step>
     return static_cast<std::size_t>((distance + magnitude - 1) / magnitude);
 }
 
+/// Expands `[StartIndex, StartIndex + sizeof...(Is))` of the range as a fold.
 template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t StartIndex, std::size_t... Is>
 POET_FORCEINLINE constexpr auto run_block(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
     constexpr std::ptrdiff_t Base = Begin + (Step * static_cast<std::ptrdiff_t>(StartIndex));
     (func(std::integral_constant<std::ptrdiff_t, Base + (Step * static_cast<std::ptrdiff_t>(Is))>{}), ...);
 }
 
+/// Same expansion, outlined so each block gets its own register allocation.
 template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t StartIndex, std::size_t... Is>
-POET_NOINLINE_FLATTEN constexpr auto run_block_iso(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
-    constexpr std::ptrdiff_t Base = Begin + (Step * static_cast<std::ptrdiff_t>(StartIndex));
-    (func(std::integral_constant<std::ptrdiff_t, Base + (Step * static_cast<std::ptrdiff_t>(Is))>{}), ...);
+POET_NOINLINE_FLATTEN constexpr auto run_block_isolated(Func &func, std::index_sequence<Is...> seq) -> void {
+    run_block<Func, Begin, Step, StartIndex>(func, seq);
 }
 
-template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t BlockSize, std::size_t... Is>
+template<bool Isolate,
+  typename Func,
+  std::ptrdiff_t Begin,
+  std::ptrdiff_t Step,
+  std::size_t BlockSize,
+  std::size_t... Is>
 POET_FORCEINLINE constexpr auto emit_blocks(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
-    (run_block<Func, Begin, Step, Is * BlockSize>(func, std::make_index_sequence<BlockSize>{}), ...);
-}
-
-template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t BlockSize, std::size_t... Is>
-POET_FORCEINLINE constexpr auto emit_blocks_iso(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
-    (run_block_iso<Func, Begin, Step, Is * BlockSize>(func, std::make_index_sequence<BlockSize>{}), ...);
+    constexpr auto block = std::make_index_sequence<BlockSize>{};
+    if constexpr (Isolate) {
+        (run_block_isolated<Func, Begin, Step, Is * BlockSize>(func, block), ...);
+    } else {
+        (run_block<Func, Begin, Step, Is * BlockSize>(func, block), ...);
+    }
 }
 
 template<typename Functor> struct template_invoker {
@@ -1870,12 +2006,12 @@ namespace detail {
       std::size_t FullBlocks,
       std::size_t Remainder>
     POET_FORCEINLINE constexpr void run_blocks(Callable &callable) {
+        // Isolate the blocks only when there is more than one: a lone block has
+        // no sibling to contend with for registers, so outlining it only costs a
+        // call.
         if constexpr (FullBlocks > 0) {
-            if constexpr (FullBlocks > 1) {
-                emit_blocks_iso<Callable, Begin, Step, BlockSize>(callable, std::make_index_sequence<FullBlocks>{});
-            } else {
-                emit_blocks<Callable, Begin, Step, BlockSize>(callable, std::make_index_sequence<FullBlocks>{});
-            }
+            emit_blocks<(FullBlocks > 1), Callable, Begin, Step, BlockSize>(
+              callable, std::make_index_sequence<FullBlocks>{});
         }
 
         if constexpr (Remainder > 0) {
@@ -1919,22 +2055,16 @@ POET_FORCEINLINE constexpr void static_for(Func &&func) {
     constexpr auto remainder = count % BlockSize;
 
     using callable_t = std::remove_reference_t<Func>;
+    detail::callable_storage_t<Func> callable(std::forward<Func>(func));
 
-    auto do_for = [&](auto &ref) POET_ALWAYS_INLINE_LAMBDA -> void {
-        if constexpr (std::is_invocable_v<callable_t &, std::integral_constant<std::ptrdiff_t, Begin>>) {
-            detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(ref);
-        } else {
-            using invoker_t = detail::template_invoker<callable_t>;
-            invoker_t invoker{ ref };
-            detail::run_blocks<invoker_t, Begin, Step, BlockSize, full_blocks, remainder>(invoker);
-        }
-    };
-
-    if constexpr (std::is_lvalue_reference_v<Func>) {
-        do_for(func);
+    if constexpr (std::is_invocable_v<callable_t &, std::integral_constant<std::ptrdiff_t, Begin>>) {
+        detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(callable);
     } else {
-        callable_t callable(std::forward<Func>(func));
-        do_for(callable);
+        // `template <auto I> operator()()` form: adapt it to the
+        // integral_constant call the block emitters use.
+        using invoker_t = detail::template_invoker<callable_t>;
+        invoker_t invoker{ callable };
+        detail::run_blocks<invoker_t, Begin, Step, BlockSize, full_blocks, remainder>(invoker);
     }
 }
 
@@ -1950,125 +2080,43 @@ template<std::ptrdiff_t End, typename Func> POET_FORCEINLINE constexpr void stat
 /* End inline (angle): include/poet/core/static_for.hpp */
 /* Begin inline (angle): include/poet/core/undef_macros.hpp */
 // BEGIN_FILE: include/poet/core/undef_macros.hpp
-// NOLINTBEGIN(llvm-header-guard)
-// NOLINTEND(llvm-header-guard)
-
 /// \file undef_macros.hpp
-/// \brief Undefines all POET macros to prevent namespace pollution.
+/// \brief Undefines every POET macro to prevent namespace pollution.
 ///
-/// The umbrella header `<poet/poet.hpp>` includes this header automatically as
-/// its last include, so macros are cleaned up by default.  If you include
-/// individual POET headers instead, you can include this header manually after
-/// all code that uses POET macros.
+/// The umbrella header `<poet/poet.hpp>` includes this as its last include, so
+/// macros are cleaned up by default.  If you include individual POET headers
+/// instead, include this one after all code that uses POET macros.
 ///
-/// POET defines several utility macros for portability and optimization:
-/// - POET_UNREACHABLE: Marks unreachable code paths
-/// - POET_FORCEINLINE: Forces function inlining
-/// - POET_ALWAYS_INLINE_LAMBDA: Forces lambda call-operator inlining
-/// - POET_NOINLINE_FLATTEN: noinline+flatten for register-isolated blocks
-/// - POET_HOT_LOOP: Hot path optimization with aggressive inlining
-/// - POET_LIKELY / POET_UNLIKELY: Branch prediction hints
-/// - POET_ASSUME: Compiler assumption hint
-/// - POET_CPP20_CONSTEVAL: Feature detection
-/// - poet_count_trailing_zeros: (function, not macro — unaffected)
+/// Re-including `<poet/core/macros.hpp>` afterwards restores them.
 ///
-/// **Usage with individual headers:**
+/// Only macros are removed: `poet::detail::count_trailing_zeros` and the
+/// template utilities (static_for, dynamic_for, dispatch) stay available.
 ///
-/// ```cpp
-/// #include <poet/core/static_for.hpp>
-///
-/// void my_poet_code() {
-///     if (POET_LIKELY(condition)) {
-///         // ...
-///     }
-/// }
-///
-/// // Clean up macro namespace before including other headers
-/// #include <poet/core/undef_macros.hpp>
-/// ```
-///
-/// **Re-include to restore macros:**
-/// After this header is included, re-including <poet/core/macros.hpp> will
-/// redefine all POET macros.
-///
-/// **Important Notes:**
-/// 1. Include this header ONLY after all code that uses POET macros.
-/// 2. The poet_count_trailing_zeros function remains available (it's not a macro).
-/// 3. Template-based POET utilities (static_for, dynamic_for, dispatch) are unaffected.
+/// Deliberately has no include guard: the macros.hpp/undef_macros.hpp cycle must
+/// be repeatable, and a guard here would silently make every pass after the
+/// first a no-op. `#undef` is idempotent, so re-including costs nothing.
 
-// Re-arm macros.hpp so a subsequent #include <poet/core/macros.hpp> redefines
-// everything.
-#ifdef POET_CORE_MACROS_HPP
+// Re-arm macros.hpp so a subsequent include redefines everything.
+// (`#undef` of an undefined macro is a well-formed no-op, so nothing is guarded.)
 #undef POET_CORE_MACROS_HPP
-#endif
 
-// ============================================================================
-// Undefine POET_UNREACHABLE
-// ============================================================================
-#ifdef POET_UNREACHABLE
 #undef POET_UNREACHABLE
-#endif
-
-// ============================================================================
-// Undefine POET_FORCEINLINE
-// ============================================================================
-#ifdef POET_FORCEINLINE
 #undef POET_FORCEINLINE
-#endif
-
-// ============================================================================
-// Undefine POET_ALWAYS_INLINE_LAMBDA
-// ============================================================================
-#ifdef POET_ALWAYS_INLINE_LAMBDA
 #undef POET_ALWAYS_INLINE_LAMBDA
-#endif
-
-// ============================================================================
-// Undefine POET_NOINLINE_FLATTEN
-// ============================================================================
-#ifdef POET_NOINLINE_FLATTEN
 #undef POET_NOINLINE_FLATTEN
-#endif
-
-// ============================================================================
-// Undefine POET_LIKELY / POET_UNLIKELY
-// ============================================================================
-#ifdef POET_LIKELY
 #undef POET_LIKELY
-#endif
-
-#ifdef POET_UNLIKELY
 #undef POET_UNLIKELY
-#endif
-
-// ============================================================================
-// Undefine POET_ASSUME
-// ============================================================================
-#ifdef POET_ASSUME
-#undef POET_ASSUME
-#endif
-
-// ============================================================================
-// Undefine POET_HOT_LOOP
-// ============================================================================
-#ifdef POET_HOT_LOOP
-#undef POET_HOT_LOOP
-#endif
-
-// ============================================================================
-// Undefine POET_HIGH_OPTIMIZATION
-// ============================================================================
-#ifdef POET_HIGH_OPTIMIZATION
 #undef POET_HIGH_OPTIMIZATION
-#endif
-
-// ============================================================================
-// Undefine C++20/C++23 feature detection macros
-// ============================================================================
-#ifdef POET_CPP20_CONSTEVAL
+#undef POET_HOT_LOOP
 #undef POET_CPP20_CONSTEVAL
-#endif
 
+// Optimization pragmas and the internal pieces POET_PUSH_OPTIMIZE is built from.
+#undef POET_PUSH_OPTIMIZE
+#undef POET_POP_OPTIMIZE
+#undef POET_PUSH_OPTIMIZE_BASE_
+#undef POET_PUSH_VECTOR_WIDTH_
+#undef POET_PUSH_SVE_BITS_STR_
+#undef POET_PUSH_SVE_BITS_VAL_
 // END_FILE: include/poet/core/undef_macros.hpp
 /* End inline (angle): include/poet/core/undef_macros.hpp */
 // NOLINTEND(llvm-include-order)
