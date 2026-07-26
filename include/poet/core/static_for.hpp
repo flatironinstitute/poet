@@ -20,12 +20,12 @@ namespace detail {
       std::size_t FullBlocks,
       std::size_t Remainder>
     POET_FORCEINLINE constexpr void run_blocks(Callable &callable) {
+        // Isolate the blocks only when there is more than one: a lone block has
+        // no sibling to contend with for registers, so outlining it only costs a
+        // call.
         if constexpr (FullBlocks > 0) {
-            if constexpr (FullBlocks > 1) {
-                emit_blocks_iso<Callable, Begin, Step, BlockSize>(callable, std::make_index_sequence<FullBlocks>{});
-            } else {
-                emit_blocks<Callable, Begin, Step, BlockSize>(callable, std::make_index_sequence<FullBlocks>{});
-            }
+            emit_blocks<(FullBlocks > 1), Callable, Begin, Step, BlockSize>(
+              callable, std::make_index_sequence<FullBlocks>{});
         }
 
         if constexpr (Remainder > 0) {
@@ -69,22 +69,16 @@ POET_FORCEINLINE constexpr void static_for(Func &&func) {
     constexpr auto remainder = count % BlockSize;
 
     using callable_t = std::remove_reference_t<Func>;
+    detail::callable_storage_t<Func> callable(std::forward<Func>(func));
 
-    auto do_for = [&](auto &ref) POET_ALWAYS_INLINE_LAMBDA -> void {
-        if constexpr (std::is_invocable_v<callable_t &, std::integral_constant<std::ptrdiff_t, Begin>>) {
-            detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(ref);
-        } else {
-            using invoker_t = detail::template_invoker<callable_t>;
-            invoker_t invoker{ ref };
-            detail::run_blocks<invoker_t, Begin, Step, BlockSize, full_blocks, remainder>(invoker);
-        }
-    };
-
-    if constexpr (std::is_lvalue_reference_v<Func>) {
-        do_for(func);
+    if constexpr (std::is_invocable_v<callable_t &, std::integral_constant<std::ptrdiff_t, Begin>>) {
+        detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(callable);
     } else {
-        callable_t callable(std::forward<Func>(func));
-        do_for(callable);
+        // `template <auto I> operator()()` form: adapt it to the
+        // integral_constant call the block emitters use.
+        using invoker_t = detail::template_invoker<callable_t>;
+        invoker_t invoker{ callable };
+        detail::run_blocks<invoker_t, Begin, Step, BlockSize, full_blocks, remainder>(invoker);
     }
 }
 

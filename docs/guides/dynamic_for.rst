@@ -64,7 +64,8 @@ C++20 adaptor
 Notes:
 
 - The adaptor is eager: it invokes ``dynamic_for`` immediately.
-- The generic range overload treats the input as a consecutive ``[start, start + count)`` sequence.
+- The range overload passes the range's own elements to the callable and
+  requires a random-access range, since the unrolled body indexes off ``begin``.
 - Tuple input preserves explicit ``(begin, end, step)`` semantics.
 
 Runnable example

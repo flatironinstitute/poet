@@ -16,27 +16,36 @@ enum class instruction_set : unsigned char {
     arm_sve,///< ARM SVE (scalable vectors)
     arm_sve2,///< ARM SVE2 (scalable vectors, enhanced)
     ppc_altivec,///< PowerPC AltiVec (128-bit vectors)
-    ppc_vsx,///< PowerPC VSX (128/256-bit vectors)
+    ppc_vsx,///< PowerPC VSX (128-bit vectors, 64 registers)
     mips_msa,///< MIPS MSA (128-bit vectors)
 };
 
 /// Register and vector characteristics for a target ISA.
 struct register_info {
-    size_t gp_registers;
-    size_t vector_registers;
-    size_t vector_width_bits;
-    size_t lanes_64bit;
-    size_t lanes_32bit;
+    std::size_t gp_registers;
+    std::size_t vector_registers;
+    std::size_t vector_width_bits;
+    std::size_t lanes_64bit;
+    std::size_t lanes_32bit;
     instruction_set isa;
 };
 
 /// Cache line sizes used for padding and alignment decisions.
 struct cache_line_info {
-    size_t destructive_size;
-    size_t constructive_size;
+    std::size_t destructive_size;
+    std::size_t constructive_size;
 };
 
 namespace detail {
+
+    /// SVE is scalable, so a width is only known when the build pins one with
+    /// `-msve-vector-bits=N` -- the same macro macros.hpp locks the hot paths to.
+    /// Otherwise report the 128-bit floor the architecture guarantees.
+#if defined(__ARM_FEATURE_SVE_BITS) && __ARM_FEATURE_SVE_BITS > 0
+    inline constexpr std::size_t sve_vector_bits = __ARM_FEATURE_SVE_BITS;
+#else
+    inline constexpr std::size_t sve_vector_bits = 128;
+#endif
 
     POET_CPP20_CONSTEVAL auto detect_instruction_set() noexcept -> instruction_set {
 #ifdef __AVX512F__
@@ -121,14 +130,23 @@ namespace detail {
             };
 
         case instruction_set::arm_neon:
-        case instruction_set::arm_sve:
-        case instruction_set::arm_sve2:
             return register_info{
                 31,// gp_registers
                 32,// vector_registers
                 128,// vector_width_bits
                 2,// lanes_64bit
                 4,// lanes_32bit
+                isa,
+            };
+
+        case instruction_set::arm_sve:
+        case instruction_set::arm_sve2:
+            return register_info{
+                31,// gp_registers
+                32,// vector_registers
+                sve_vector_bits,// vector_width_bits
+                sve_vector_bits / 64,// lanes_64bit
+                sve_vector_bits / 32,// lanes_32bit
                 isa,
             };
 
@@ -219,18 +237,26 @@ POET_CPP20_CONSTEVAL auto registers_for(instruction_set isa) noexcept -> registe
     return detail::get_register_info(isa);
 }
 
-POET_CPP20_CONSTEVAL auto vector_register_count() noexcept -> size_t { return available_registers().vector_registers; }
+POET_CPP20_CONSTEVAL auto vector_register_count() noexcept -> std::size_t {
+    return available_registers().vector_registers;
+}
 
-POET_CPP20_CONSTEVAL auto vector_width_bits() noexcept -> size_t { return available_registers().vector_width_bits; }
+POET_CPP20_CONSTEVAL auto vector_width_bits() noexcept -> std::size_t {
+    return available_registers().vector_width_bits;
+}
 
-POET_CPP20_CONSTEVAL auto vector_lanes_64bit() noexcept -> size_t { return available_registers().lanes_64bit; }
+POET_CPP20_CONSTEVAL auto vector_lanes_64bit() noexcept -> std::size_t { return available_registers().lanes_64bit; }
 
-POET_CPP20_CONSTEVAL auto vector_lanes_32bit() noexcept -> size_t { return available_registers().lanes_32bit; }
+POET_CPP20_CONSTEVAL auto vector_lanes_32bit() noexcept -> std::size_t { return available_registers().lanes_32bit; }
 
 POET_CPP20_CONSTEVAL auto cache_line() noexcept -> cache_line_info { return detail::detect_cache_line_info(); }
 
-POET_CPP20_CONSTEVAL auto destructive_interference_size() noexcept -> size_t { return cache_line().destructive_size; }
+POET_CPP20_CONSTEVAL auto destructive_interference_size() noexcept -> std::size_t {
+    return cache_line().destructive_size;
+}
 
-POET_CPP20_CONSTEVAL auto constructive_interference_size() noexcept -> size_t { return cache_line().constructive_size; }
+POET_CPP20_CONSTEVAL auto constructive_interference_size() noexcept -> std::size_t {
+    return cache_line().constructive_size;
+}
 
 }// namespace poet

@@ -3,22 +3,14 @@
 /// \file mdspan_utils.hpp
 /// \brief Multidimensional index utilities for N-D dispatch table generation.
 ///
-/// Provides row-major stride computation and total-size calculation used by
-/// the N-D function-pointer-table dispatch in dispatch.hpp.
+/// Provides the row-major stride computation used by the N-D
+/// function-pointer-table dispatch in dispatch.hpp.
 
 #include <array>
 #include <cstddef>
 #include <poet/core/macros.hpp>
 
 namespace poet::detail {
-
-/// Total size (product of all dimensions).
-template<std::size_t N>
-POET_CPP20_CONSTEVAL auto compute_total_size(const std::array<std::size_t, N> &dims) -> std::size_t {
-    std::size_t total = 1;
-    for (std::size_t i = 0; i < N; ++i) { total *= dims[i]; }
-    return total;
-}
 
 /// Compute row-major strides. stride[i] = product of dims[i+1..N-1].
 template<std::size_t N>

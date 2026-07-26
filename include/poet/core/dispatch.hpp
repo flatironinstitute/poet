@@ -11,7 +11,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include <variant>
 
 #include <poet/core/macros.hpp>
 #include <poet/core/mdspan_utils.hpp>
@@ -23,8 +22,10 @@ template<auto... Vs> struct tuple_ {};
 
 namespace detail {
 
-    template<typename T>
-    using result_holder = std::conditional_t<std::is_void_v<T>, std::optional<std::monostate>, std::optional<T>>;
+    /// Payload for void-returning dispatch, so a match is still an engaged optional.
+    struct void_result {};
+
+    template<typename T> using result_holder = std::optional<std::conditional_t<std::is_void_v<T>, void_result, T>>;
 
     template<typename Functor, typename ResultType, typename RuntimeTuple, typename... Args> struct seq_matcher;
 
@@ -36,15 +37,16 @@ namespace detail {
       typename... Args>
     struct seq_matcher<std::integer_sequence<ValueType, V...>, ResultType, RuntimeTuple, Functor, Args...> {
         template<std::size_t... Idx, typename F>
-        static auto
-          impl(std::index_sequence<Idx...> /*idx_seq*/, const RuntimeTuple &runtime_tuple, F &&func, Args &&...args)
-            -> result_holder<ResultType> {
+        static auto impl(std::index_sequence<Idx...> /*idx_seq*/,
+          const RuntimeTuple &runtime_tuple,
+          F &&func,
+          Args &&...args) -> result_holder<ResultType> {
             result_holder<ResultType> res;
             // Short-circuiting AND fold: all runtime slots must equal their compile-time counterparts.
             if (((std::get<Idx>(runtime_tuple) == V) && ...)) {
                 if constexpr (std::is_void_v<ResultType>) {
                     std::forward<F>(func).template operator()<V...>(std::forward<Args>(args)...);
-                    res = std::monostate{};
+                    res = void_result{};
                 } else {
                     res = std::forward<F>(func).template operator()<V...>(std::forward<Args>(args)...);
                 }
@@ -53,8 +55,8 @@ namespace detail {
         }
 
         template<typename F>
-        static auto match_and_call(const RuntimeTuple &runtime_tuple, F &&func, Args &&...args)
-          -> result_holder<ResultType> {
+        static auto
+          match_and_call(const RuntimeTuple &runtime_tuple, F &&func, Args &&...args) -> result_holder<ResultType> {
             return impl(std::make_index_sequence<sizeof...(V)>{},
               runtime_tuple,
               std::forward<F>(func),
@@ -108,25 +110,39 @@ namespace detail {
     struct sequence_size<std::integer_sequence<T, Values...>>
       : std::integral_constant<std::size_t, sizeof...(Values)> {};
 
+    template<typename Sequence> struct sequence_first;
+
+    template<int First, int... Rest>
+    struct sequence_first<std::integer_sequence<int, First, Rest...>> : std::integral_constant<int, First> {};
+
+    /// True when the values form a unit-stride run, ascending or descending.
+    ///
+    /// Monotonicity is required, not merely a span equal to the value count:
+    /// `seq_lookup` resolves these by `position == distance from First`, which a
+    /// permutation such as `{2, 0, 1}` satisfies in span but not in position.
+    template<int... Values> POET_CPP20_CONSTEVAL auto is_unit_stride() noexcept -> bool {
+        constexpr std::size_t count = sizeof...(Values);
+        if constexpr (count < 2) {
+            return true;
+        } else {
+            constexpr std::array<int, count> values = { Values... };
+            constexpr int step = values[1] - values[0];
+            if constexpr (step != 1 && step != -1) {
+                return false;
+            } else {
+                for (std::size_t i = 2; i < count; ++i) {
+                    if (values[i] - values[i - 1] != step) { return false; }
+                }
+                return true;
+            }
+        }
+    }
+
     template<typename Seq> struct is_contiguous_sequence : std::false_type {};
 
     template<int First, int... Rest>
     struct is_contiguous_sequence<std::integer_sequence<int, First, Rest...>>
-      : std::bool_constant<(
-          std::max({ First, Rest... }) - std::min({ First, Rest... }) + 1 == static_cast<int>(1 + sizeof...(Rest)))> {};
-
-    template<typename ParamTuple, typename = std::make_index_sequence<std::tuple_size_v<std::decay_t<ParamTuple>>>>
-    struct all_contiguous;
-
-    template<typename ParamTuple, std::size_t... Idx>
-    struct all_contiguous<ParamTuple, std::index_sequence<Idx...>>
-      : std::bool_constant<(
-          is_contiguous_sequence<typename std::tuple_element_t<Idx, std::decay_t<ParamTuple>>::seq_type>::value
-          && ...)> {};
-
-    template<typename ParamTuple> inline constexpr bool all_contiguous_v = all_contiguous<ParamTuple>::value;
-
-    template<typename Sequence> struct sequence_first;
+      : std::bool_constant<is_unit_stride<First, Rest...>()> {};
 
     template<typename Seq> struct sparse_index;
 
@@ -203,6 +219,14 @@ namespace detail {
 
     inline constexpr std::size_t dispatch_npos = static_cast<std::size_t>(-1);
 
+    /// Maps a runtime value to its slot in `Seq`.
+    ///
+    /// `find` returns a slot in `[0, count)` on a hit and *some* value `>= count`
+    /// on a miss — deliberately not a fixed sentinel. The contiguous case can
+    /// then return its raw unsigned difference, whose natural underflow already
+    /// lands out of range, so a hit costs one subtraction and no select at all.
+    /// Callers test `idx < count`, which is the same single compare a sentinel
+    /// would need.
     template<typename Seq, bool IsContiguous = is_contiguous_sequence<Seq>::value> struct seq_lookup;
 
     template<int... Values> struct seq_lookup<std::integer_sequence<int, Values...>, true> {
@@ -210,17 +234,16 @@ namespace detail {
         static constexpr std::size_t len = sizeof...(Values);
         static constexpr bool ascending = (first == std::min({ Values... }));
 
+        static constexpr std::size_t count = len;
+
         static POET_FORCEINLINE auto find(int value) -> std::size_t {
-            // Unsigned subtraction folds "below first" into "far above len", so a single
-            // `idx < len` check handles both underflow and overflow with no extra branch.
-            std::size_t idx = 0;
+            // Unsigned subtraction sends "below first" far above `count`, so the
+            // caller's `idx < count` test covers underflow and overflow alike.
             if constexpr (ascending) {
-                idx = static_cast<std::size_t>(static_cast<unsigned int>(value) - static_cast<unsigned int>(first));
+                return static_cast<std::size_t>(static_cast<unsigned int>(value) - static_cast<unsigned int>(first));
             } else {
-                idx = static_cast<std::size_t>(static_cast<unsigned int>(first) - static_cast<unsigned int>(value));
+                return static_cast<std::size_t>(static_cast<unsigned int>(first) - static_cast<unsigned int>(value));
             }
-            if (idx < len) { return idx; }
-            return dispatch_npos;
         }
     };
 
@@ -245,34 +268,41 @@ namespace detail {
             }
         }();
 
+        static constexpr std::size_t count = sparse_data::value_count;
+
+        /// `indices` is a permutation of `[0, count)`, but neither compiler can
+        /// see that through the table load, so it re-checks the bound the caller
+        /// already applies. Stating the invariant drops the duplicate compare.
+        static POET_FORCEINLINE auto bounded(std::size_t slot) -> std::size_t {
+            if (slot >= count) { POET_UNREACHABLE(); }
+            return slot;
+        }
+
         static POET_FORCEINLINE auto find(int value) -> std::size_t {
             if constexpr (is_strided) {
                 static constexpr int first = sparse_data::keys[0];
                 static constexpr int stride = sparse_data::keys[1] - sparse_data::keys[0];
-                const int diff = value - first;
-                // Miss when below range or not aligned to the stride grid.
-                if (diff < 0 || diff % stride != 0) { return dispatch_npos; }
-                const auto idx = static_cast<std::size_t>(diff / stride);
+                // Unsigned, so "below first" wraps past the upper bound and the
+                // two range ends collapse into the single `slot >=` test below.
+                // Keys are sorted, so `stride` is positive and the division is a shift.
+                const auto diff = static_cast<unsigned int>(value) - static_cast<unsigned int>(first);
+                if (diff % static_cast<unsigned int>(stride) != 0) { return count; }
+                const auto slot = static_cast<std::size_t>(diff / static_cast<unsigned int>(stride));
+                if (slot >= sparse_data::unique_count) { return count; }
                 // Remap sorted position back to the user's declared slot.
-                if (idx < sparse_data::unique_count) { return sparse_data::indices[idx]; }
-                return dispatch_npos;
+                return bounded(sparse_data::indices[slot]);
             } else {
                 // Sorted keys → binary search; `indices` undoes the sort to the original slot.
                 const auto pos = std::lower_bound(sparse_data::keys.begin(), sparse_data::keys.end(), value);
-                if (pos != sparse_data::keys.end() && *pos == value) {
-                    return sparse_data::indices[static_cast<std::size_t>(pos - sparse_data::keys.begin())];
-                }
-                return dispatch_npos;
+                if (pos == sparse_data::keys.end() || *pos != value) { return count; }
+                return bounded(sparse_data::indices[static_cast<std::size_t>(pos - sparse_data::keys.begin())]);
             }
         }
     };
 
-    template<int First, int... Rest>
-    struct sequence_first<std::integer_sequence<int, First, Rest...>> : std::integral_constant<int, First> {};
-
     template<typename ParamTuple, std::size_t... Idx>
-    POET_CPP20_CONSTEVAL auto dimensions_of_impl(std::index_sequence<Idx...> /*idxs*/)
-      -> std::array<std::size_t, sizeof...(Idx)> {
+    POET_CPP20_CONSTEVAL auto dimensions_of_impl(
+      std::index_sequence<Idx...> /*idxs*/) -> std::array<std::size_t, sizeof...(Idx)> {
         using P = std::decay_t<ParamTuple>;
         return std::array<std::size_t, sizeof...(Idx)>{
             sequence_size<typename std::tuple_element_t<Idx, P>::seq_type>::value...
@@ -284,60 +314,32 @@ namespace detail {
         return dimensions_of_impl<ParamTuple>(std::make_index_sequence<std::tuple_size_v<std::decay_t<ParamTuple>>>{});
     }
 
+    /// Row-major flat index of the runtime coordinate, or `dispatch_npos` on a miss.
+    ///
+    /// Per-dimension lookup is `seq_lookup::find`, which already specialises to
+    /// index arithmetic, a div/mod, or a binary search depending on the sequence
+    /// shape — so there is one flattening path regardless of that shape.
     template<typename ParamTuple, std::size_t... Idx>
-    POET_FORCEINLINE auto flat_index_sparse(const ParamTuple &params, std::index_sequence<Idx...> /*idxs*/)
-      -> std::size_t {
+    POET_FORCEINLINE auto flat_index(const ParamTuple &params, std::index_sequence<Idx...> /*idxs*/) -> std::size_t {
         using P = std::decay_t<ParamTuple>;
         constexpr auto strides = compute_strides(dimensions_of<P>());
 
-        const std::array<std::size_t, sizeof...(Idx)> indices = {
-            seq_lookup<typename std::tuple_element_t<Idx, P>::seq_type>::find(std::get<Idx>(params).runtime_val)...
-        };
+        using lookup = std::tuple<seq_lookup<typename std::tuple_element_t<Idx, P>::seq_type>...>;
 
-        const bool all_hit = ((indices[Idx] != dispatch_npos) && ...);
-        if (POET_UNLIKELY(!all_hit)) { return dispatch_npos; }
+        const std::array<std::size_t, sizeof...(Idx)> found = { std::tuple_element_t<Idx, lookup>::find(
+          std::get<Idx>(params).runtime_val)... };
 
-        return ((indices[Idx] * strides[Idx]) + ...);
-    }
+        // Bitwise-AND fold (not logical) so no dimension's range test is
+        // short-circuited into a branch; the offset is summed unconditionally
+        // alongside it, since a miss discards it anyway.
+        const unsigned hit = ((static_cast<unsigned>(found[Idx] < std::tuple_element_t<Idx, lookup>::count)) & ...);
+        const std::size_t flat = ((found[Idx] * strides[Idx]) + ...);
 
-    template<typename Seq> POET_FORCEINLINE constexpr auto contiguous_offset(int value) noexcept -> std::size_t {
-        constexpr auto ufirst = static_cast<unsigned int>(sequence_first<Seq>::value);
-        const auto uval = static_cast<unsigned int>(value);
-        if constexpr (seq_lookup<Seq>::ascending) {
-            return static_cast<std::size_t>(uval - ufirst);
-        } else {
-            return static_cast<std::size_t>(ufirst - uval);
-        }
-    }
-
-    template<typename ParamTuple, std::size_t... Idx>
-    POET_FORCEINLINE auto flat_index_contiguous(const ParamTuple &params, std::index_sequence<Idx...> /*idxs*/)
-      -> std::size_t {
-        using P = std::decay_t<ParamTuple>;
-        constexpr auto strides = compute_strides(dimensions_of<P>());
-
-        const std::array<std::size_t, sizeof...(Idx)> mapped = {
-            contiguous_offset<typename std::tuple_element_t<Idx, P>::seq_type>(std::get<Idx>(params).runtime_val)...
-        };
-
-        // Bitwise-OR fold (not logical) so each bound check is evaluated branch-free;
-        // the aggregate OOB flag is consumed once at the bottom.
-        const std::size_t oob = (static_cast<std::size_t>(
-                                   mapped[Idx] >= sequence_size<typename std::tuple_element_t<Idx, P>::seq_type>::value)
-                                 | ...);
-
-        const std::size_t flat = ((mapped[Idx] * strides[Idx]) + ...);
-
-        return (oob == 0) ? flat : dispatch_npos;
+        return (hit != 0) ? flat : dispatch_npos;
     }
 
     template<typename ParamTuple> POET_FORCEINLINE auto extract_flat_index(const ParamTuple &params) -> std::size_t {
-        constexpr std::size_t num_dims = std::tuple_size_v<std::decay_t<ParamTuple>>;
-        if constexpr (all_contiguous_v<ParamTuple>) {
-            return flat_index_contiguous(params, std::make_index_sequence<num_dims>{});
-        } else {
-            return flat_index_sparse(params, std::make_index_sequence<num_dims>{});
-        }
+        return flat_index(params, std::make_index_sequence<std::tuple_size_v<std::decay_t<ParamTuple>>>{});
     }
 
     template<typename A, typename B> struct seq_equal;
@@ -391,11 +393,9 @@ namespace detail {
 
         // Detection of value-argument viability using std::is_invocable
         template<typename... Args>
-        static auto compute() -> decltype(compute_impl<Args...>(std::integral_constant<bool,
-          std::is_invocable_v<Functor &, std::integral_constant<int, sequence_first<Seq>::value>..., Args...>>{})) {
-            return compute_impl<Args...>(std::integral_constant<bool,
-              std::is_invocable_v<Functor &, std::integral_constant<int, sequence_first<Seq>::value>..., Args...>>{});
-        }
+        static auto compute()
+          -> decltype(compute_impl<Args...>(std::integral_constant<bool,
+            std::is_invocable_v<Functor &, std::integral_constant<int, sequence_first<Seq>::value>..., Args...>>{}));
     };
 
     template<typename Functor, typename SequenceTuple, typename... Args> struct dispatch_result;
@@ -517,8 +517,8 @@ namespace detail {
             using VE = decltype(make_ve(std::make_index_sequence<sizeof...(Seqs)>{}));
 
             template<typename R, std::size_t... SeqIdx>
-            static POET_FORCEINLINE auto invoke(Functor &func, std::index_sequence<SeqIdx...> /*idx*/, Args &&...args)
-              -> R {
+            static POET_FORCEINLINE auto
+              invoke(Functor &func, std::index_sequence<SeqIdx...> /*idx*/, Args &&...args) -> R {
                 using VE_local = value_extractor<FlatIdx, SeqIdx...>;
                 constexpr bool use_value_form =
                   std::is_invocable_v<Functor &, typename VE_local::template ic<SeqIdx>..., Args &&...>;
@@ -592,13 +592,13 @@ template<typename ValueType, typename... Tuples> struct dispatch_set {
   private:
     runtime_array_t runtime_val;
 
-  public:
-    template<typename... Args, typename = std::enable_if_t<sizeof...(Args) == tuple_arity>>
-    explicit dispatch_set(Args &&...args) : runtime_val{ static_cast<ValueType>(std::forward<Args>(args))... } {}
-
     template<std::size_t... Idx> [[nodiscard]] auto runtime_tuple_impl(std::index_sequence<Idx...> /*idxs*/) const {
         return std::make_tuple(runtime_val[Idx]...);
     }
+
+  public:
+    template<typename... Args, typename = std::enable_if_t<sizeof...(Args) == tuple_arity>>
+    explicit dispatch_set(Args &&...args) : runtime_val{ static_cast<ValueType>(std::forward<Args>(args))... } {}
 
     [[nodiscard]] auto runtime_tuple() const { return runtime_tuple_impl(std::make_index_sequence<tuple_arity>{}); }
 };
@@ -640,7 +640,7 @@ namespace detail {
         const int runtime_val = std::get<0>(params).runtime_val;
         const std::size_t idx = seq_lookup<Seq>::find(runtime_val);
 
-        if (idx != dispatch_npos) {
+        if (idx < seq_lookup<Seq>::count) {
             using FunctorT = std::decay_t<Functor>;
             static constexpr auto table = make_dispatch_table<FunctorT, arg_pack<Args...>, R>(Seq{});
             return invoke_table_entry<R>(functor, table[idx], std::forward<Args>(args)...);
@@ -656,11 +656,9 @@ namespace detail {
     POET_FORCEINLINE auto dispatch_nd(Functor &functor, ParamTuple const &params, Args &&...args) -> R {
         const std::size_t flat_idx = extract_flat_index(params);
         if (POET_LIKELY(flat_idx != dispatch_npos)) {
-            using sequences_t = decltype(extract_sequences<ParamTuple>());
-            static constexpr sequences_t sequences{};
-
             using FunctorT = std::decay_t<Functor>;
-            static constexpr auto table = make_nd_dispatch_table<FunctorT, arg_pack<Args...>, R>(sequences);
+            static constexpr auto table =
+              make_nd_dispatch_table<FunctorT, arg_pack<Args...>, R>(decltype(extract_sequences<ParamTuple>()){});
             return invoke_table_entry<R>(functor, table[flat_idx], std::forward<Args>(args)...);
         }
         if constexpr (ThrowOnNoMatch) {
@@ -722,8 +720,8 @@ namespace detail {
     // counting dispatch_param types until the first non-dispatch_param — everything after is
     // forwarded as plain args into the chosen specialisation.
     template<bool ThrowOnNoMatch, typename Functor, typename FirstParam, typename... Rest>
-    POET_FORCEINLINE auto dispatch_variadic_impl(Functor &functor, FirstParam &&first_param, Rest &&...rest)
-      -> decltype(auto) {
+    POET_FORCEINLINE auto
+      dispatch_variadic_impl(Functor &functor, FirstParam &&first_param, Rest &&...rest) -> decltype(auto) {
         // `first_param` is known to be a dispatch_param (enable_if on the public overload);
         // count contiguous dispatch_params in the rest, the remainder is the regular arg pack.
         constexpr std::size_t num_params = 1 + leading_param_count<Rest...>::value;
@@ -820,20 +818,22 @@ namespace detail {
 }// namespace detail
 
 /// \brief Dispatches using a `dispatch_set`.
-template<typename Functor, typename... Tuples, typename... Args>
-auto dispatch(Functor &&functor, const dispatch_set<Tuples...> &set, Args &&...args) -> decltype(auto) {
+template<typename Functor, typename ValueType, typename... Tuples, typename... Args>
+auto dispatch(Functor &&functor, const dispatch_set<ValueType, Tuples...> &set, Args &&...args) -> decltype(auto) {
     return detail::dispatch_tuples_impl<false>(std::forward<Functor>(functor),
-      typename dispatch_set<Tuples...>::seq_type{},
+      typename dispatch_set<ValueType, Tuples...>::seq_type{},
       set.runtime_tuple(),
       std::forward<Args>(args)...);
 }
 
 /// \brief Throwing overload for `dispatch_set` dispatch.
-template<typename Functor, typename... Tuples, typename... Args>
-auto dispatch(throw_on_no_match_t /*tag*/, Functor &&functor, const dispatch_set<Tuples...> &set, Args &&...args)
-  -> decltype(auto) {
+template<typename Functor, typename ValueType, typename... Tuples, typename... Args>
+auto dispatch(throw_on_no_match_t /*tag*/,
+  Functor &&functor,
+  const dispatch_set<ValueType, Tuples...> &set,
+  Args &&...args) -> decltype(auto) {
     return detail::dispatch_tuples_impl<true>(std::forward<Functor>(functor),
-      typename dispatch_set<Tuples...>::seq_type{},
+      typename dispatch_set<ValueType, Tuples...>::seq_type{},
       set.runtime_tuple(),
       std::forward<Args>(args)...);
 }

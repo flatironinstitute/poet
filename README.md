@@ -71,7 +71,7 @@ poet::dynamic_for<4, 2>(0, 16, [](int i) {
 });
 ```
 
-C++20 adaptor (eager; treats a range as `[start, start + count)`):
+C++20 adaptor (eager; iterates a random-access range's elements):
 
 ```cpp
 auto r = std::views::iota(0) | std::views::take(10);

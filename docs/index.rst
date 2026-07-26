@@ -78,7 +78,7 @@ Notes
 
 - ``poet::inclusive_range<Start, End>`` is inclusive on both ends.
 - ``dynamic_for`` is most useful with the lane-aware callback form for multi-accumulator work.
-- The C++20 ``make_dynamic_for`` adaptor is eager.
+- The C++20 ``make_dynamic_for`` adaptor is eager and needs a random-access range.
 
 Next reads
 ----------

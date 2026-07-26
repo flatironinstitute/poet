@@ -107,6 +107,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
 set(HEADERS_TEST_SRCS
   poet_header_tests.cpp
+  macro_hygiene_tests.cpp
 )
 set(DYNAMIC_FOR_TEST_SRCS
   dynamic_for_tests.cpp

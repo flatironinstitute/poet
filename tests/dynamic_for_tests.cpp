@@ -621,4 +621,19 @@ TEST_CASE("dynamic_for lane works with range and tuple adaptors (C++20)", "[dyna
     }
 }
 
+TEST_CASE("dynamic_for range adaptor yields the range's own values (C++20)", "[dynamic_for][ranges][cpp20]") {
+    // Not consecutive and not starting at 0, so anything that reconstructs the
+    // range as `[*begin, *begin + size)` produces the wrong values.
+    const std::vector<int> values = { 5, 3, 9, 1, 7, 7 };
+
+    std::vector<int> seen;
+    values | poet::make_dynamic_for<4>([&seen](int v) { seen.push_back(v); });
+    REQUIRE(seen == values);
+
+    std::vector<int> doubled;
+    auto view = values | std::views::transform([](int v) { return v * 2; });
+    view | poet::make_dynamic_for<4>([&doubled](auto /*lane*/, int v) { doubled.push_back(v); });
+    REQUIRE(doubled == std::vector<int>{ 10, 6, 18, 2, 14, 14 });
+}
+
 #endif// __cplusplus >= 202002L

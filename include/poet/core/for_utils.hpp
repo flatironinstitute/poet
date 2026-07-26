@@ -25,26 +25,32 @@ template<std::ptrdiff_t Begin, std::ptrdiff_t End, std::ptrdiff_t Step>
     return static_cast<std::size_t>((distance + magnitude - 1) / magnitude);
 }
 
+/// Expands `[StartIndex, StartIndex + sizeof...(Is))` of the range as a fold.
 template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t StartIndex, std::size_t... Is>
 POET_FORCEINLINE constexpr auto run_block(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
     constexpr std::ptrdiff_t Base = Begin + (Step * static_cast<std::ptrdiff_t>(StartIndex));
     (func(std::integral_constant<std::ptrdiff_t, Base + (Step * static_cast<std::ptrdiff_t>(Is))>{}), ...);
 }
 
+/// Same expansion, outlined so each block gets its own register allocation.
 template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t StartIndex, std::size_t... Is>
-POET_NOINLINE_FLATTEN constexpr auto run_block_iso(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
-    constexpr std::ptrdiff_t Base = Begin + (Step * static_cast<std::ptrdiff_t>(StartIndex));
-    (func(std::integral_constant<std::ptrdiff_t, Base + (Step * static_cast<std::ptrdiff_t>(Is))>{}), ...);
+POET_NOINLINE_FLATTEN constexpr auto run_block_isolated(Func &func, std::index_sequence<Is...> seq) -> void {
+    run_block<Func, Begin, Step, StartIndex>(func, seq);
 }
 
-template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t BlockSize, std::size_t... Is>
+template<bool Isolate,
+  typename Func,
+  std::ptrdiff_t Begin,
+  std::ptrdiff_t Step,
+  std::size_t BlockSize,
+  std::size_t... Is>
 POET_FORCEINLINE constexpr auto emit_blocks(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
-    (run_block<Func, Begin, Step, Is * BlockSize>(func, std::make_index_sequence<BlockSize>{}), ...);
-}
-
-template<typename Func, std::ptrdiff_t Begin, std::ptrdiff_t Step, std::size_t BlockSize, std::size_t... Is>
-POET_FORCEINLINE constexpr auto emit_blocks_iso(Func &func, std::index_sequence<Is...> /*seq*/) -> void {
-    (run_block_iso<Func, Begin, Step, Is * BlockSize>(func, std::make_index_sequence<BlockSize>{}), ...);
+    constexpr auto block = std::make_index_sequence<BlockSize>{};
+    if constexpr (Isolate) {
+        (run_block_isolated<Func, Begin, Step, Is * BlockSize>(func, block), ...);
+    } else {
+        (run_block<Func, Begin, Step, Is * BlockSize>(func, block), ...);
+    }
 }
 
 template<typename Functor> struct template_invoker {

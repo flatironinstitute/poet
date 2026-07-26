@@ -1171,3 +1171,21 @@ TEST_CASE("dispatch ND lambda returns pointer (lvalue)", "[static_dispatch][retu
         }
     }
 }
+
+TEST_CASE("dispatch permuted sequence resolves to the declared slot", "[static_dispatch][permutation]") {
+    // A permutation such as {2, 0, 1} spans max-min+1 == 3 over 3 values, so a
+    // span-only contiguity test would classify it as unit-stride and resolve it
+    // by index arithmetic — silently dispatching to the wrong slot.
+    using Permuted = std::integer_sequence<int, 2, 0, 1>;
+
+    auto identity = [](auto V) { return static_cast<int>(V); };
+    for (int value : { 2, 0, 1 }) {
+        REQUIRE(dispatch(identity, std::make_tuple(dispatch_param<Permuted>{ value })) == value);
+    }
+
+    // Descending runs must still take the fast path and stay correct.
+    using Descending = std::integer_sequence<int, 4, 3, 2>;
+    for (int value : { 4, 3, 2 }) {
+        REQUIRE(dispatch(identity, std::make_tuple(dispatch_param<Descending>{ value })) == value);
+    }
+}
