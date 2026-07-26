@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <numeric>
 #include <stdexcept>
 #include <type_traits>
@@ -637,3 +638,20 @@ TEST_CASE("dynamic_for range adaptor yields the range's own values (C++20)", "[d
 }
 
 #endif// __cplusplus >= 202002L
+
+TEST_CASE("opaque_count is value-preserving", "[dynamic_for][unroll1]") {
+    // The Unroll==1 loop bound goes through it, so any laundering that alters
+    // the value silently changes every trip count.
+    using poet::detail::opaque_count;
+    REQUIRE(opaque_count(std::size_t{ 0 }) == 0U);
+    REQUIRE(opaque_count(std::size_t{ 1 }) == 1U);
+    REQUIRE(opaque_count(std::numeric_limits<std::size_t>::max()) == std::numeric_limits<std::size_t>::max());
+}
+
+TEST_CASE("dynamic_for<1> honours a compile-time-constant trip count", "[dynamic_for][unroll1]") {
+    // A constant count is exactly the case where the optimizer would otherwise
+    // be free to re-inflate the loop opaque_count() exists to keep rolled.
+    std::size_t calls = 0;
+    poet::dynamic_for<1>(std::size_t{ 0 }, std::size_t{ 8 }, [&calls](std::size_t) { ++calls; });
+    REQUIRE(calls == 8U);
+}

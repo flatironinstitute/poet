@@ -206,6 +206,27 @@ namespace detail {
         tail_binary<N, WantsLane>(count, func, index, stride, args...);
     }
 
+    /// \brief Returns `count` in a form the optimizer cannot constant-fold.
+    ///
+    /// `Unroll == 1` is a contract, not a hint: without this, a caller with a
+    /// provably constant trip count lets the compiler re-inflate the loop it
+    /// asked to keep rolled, and gcc's and clang's auto-unroll heuristics
+    /// disagree on when. GNU/clang: an empty asm barrier costs zero
+    /// instructions, the value merely becomes opaque. MSVC has no x64 inline
+    /// asm, so a `volatile` round-trip (one stack store+load per call) does the
+    /// same job.
+    template<typename T> POET_FORCEINLINE auto opaque_count(T count) -> T {
+#if defined(__GNUC__) || defined(__clang__)
+        asm volatile("" : "+r"(count));// NOLINT(hicpp-no-assembler)
+        return count;
+#elif defined(_MSC_VER)
+        volatile T laundered = count;
+        return laundered;
+#else
+        return count;
+#endif
+    }
+
     POET_PUSH_OPTIMIZE
 
     // ========================================================================
@@ -226,7 +247,8 @@ namespace detail {
         T index = begin;
 
         if constexpr (Unroll == 1) {
-            for (std::size_t i = 0; i < count; ++i) {
+            const std::size_t trips = opaque_count(count);
+            for (std::size_t i = 0; i < trips; ++i) {
                 invoke_lane<WantsLane, 0>(func, index, args...);
                 index += stride_of<T>(stride);
             }
