@@ -291,7 +291,7 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #define POET_VERSION_MINOR 0
 #define POET_VERSION_PATCH 0
 #define POET_VERSION_STRING "0.0.0"
-#define POET_VERSION_FULL "0.0.0"
+#define POET_VERSION_FULL "0.0.0-dev.2"
 // NOLINTEND(cppcoreguidelines-macro-usage,cppcoreguidelines-macro-to-enum,modernize-macro-to-enum)
 
 namespace poet {
@@ -783,6 +783,27 @@ namespace detail {
         tail_binary<N, WantsLane>(count, func, index, stride, args...);
     }
 
+    /// \brief Returns `count` in a form the optimizer cannot constant-fold.
+    ///
+    /// `Unroll == 1` is a contract, not a hint: without this, a caller with a
+    /// provably constant trip count lets the compiler re-inflate the loop it
+    /// asked to keep rolled, and gcc's and clang's auto-unroll heuristics
+    /// disagree on when. GNU/clang: an empty asm barrier costs zero
+    /// instructions, the value merely becomes opaque. MSVC has no x64 inline
+    /// asm, so a `volatile` round-trip (one stack store+load per call) does the
+    /// same job.
+    template<typename T> POET_FORCEINLINE auto opaque_count(T count) -> T {
+#if defined(__GNUC__) || defined(__clang__)
+        asm volatile("" : "+r"(count));// NOLINT(hicpp-no-assembler)
+        return count;
+#elif defined(_MSC_VER)
+        volatile T laundered = count;
+        return laundered;
+#else
+        return count;
+#endif
+    }
+
     POET_PUSH_OPTIMIZE
 
     // ========================================================================
@@ -803,7 +824,8 @@ namespace detail {
         T index = begin;
 
         if constexpr (Unroll == 1) {
-            for (std::size_t i = 0; i < count; ++i) {
+            const std::size_t trips = opaque_count(count);
+            for (std::size_t i = 0; i < trips; ++i) {
                 invoke_lane<WantsLane, 0>(func, index, args...);
                 index += stride_of<T>(stride);
             }
@@ -2019,6 +2041,37 @@ namespace detail {
         }
     }
 
+    /// \brief True when `Callable` accepts the loop index as an integral_constant.
+    ///
+    /// Overload resolution, not `std::is_invocable_v`: the latter instantiates the
+    /// `__invoke_result` / `__result_of_impl` class-template chain once per
+    /// (callable, index) pair, which dominates frontend time in translation units
+    /// that instantiate `static_for` thousands of times. Measured on one FFT
+    /// engine TU (14251 static_for instantiations): 34537 class instantiations /
+    /// 53.2s of clang `InstantiateClass` down to 1021 / 1.3s, ~6% off total
+    /// compile time on gcc-14 and clang-19 alike, with byte-identical objects.
+    ///
+    /// Deliberately narrower than `is_invocable`: it detects a direct call, not
+    /// full INVOKE semantics. `static_for` only ever calls `func(ic)`.
+    /// Not a concept — poet also builds as C++17, and this form is
+    /// standard-agnostic. Function overloads rather than a detector class
+    /// template: a class would reintroduce one class instantiation per
+    /// (callable, index) pair, which is the cost being removed. `int` beats
+    /// `long` on an exact match for the `0` argument, so the viable branch is
+    /// picked without a C-style variadic fallback.
+    template<typename Callable, std::ptrdiff_t I>
+    constexpr auto detect_takes_index(int /*rank*/) noexcept
+      -> decltype(std::declval<Callable &>()(std::integral_constant<std::ptrdiff_t, I>{}), true) {
+        return true;
+    }
+
+    template<typename Callable, std::ptrdiff_t I> constexpr auto detect_takes_index(long /*rank*/) noexcept -> bool {
+        return false;
+    }
+
+    template<typename Callable, std::ptrdiff_t I>
+    inline constexpr bool takes_index_v = detect_takes_index<Callable, I>(0);
+
     template<std::ptrdiff_t Begin, std::ptrdiff_t End, std::ptrdiff_t Step>
     POET_CPP20_CONSTEVAL auto default_block_size() noexcept -> std::size_t {
         constexpr auto count = detail::compute_range_count<Begin, End, Step>();
@@ -2057,7 +2110,7 @@ POET_FORCEINLINE constexpr void static_for(Func &&func) {
     using callable_t = std::remove_reference_t<Func>;
     detail::callable_storage_t<Func> callable(std::forward<Func>(func));
 
-    if constexpr (std::is_invocable_v<callable_t &, std::integral_constant<std::ptrdiff_t, Begin>>) {
+    if constexpr (detail::takes_index_v<callable_t, Begin>) {
         detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(callable);
     } else {
         // `template <auto I> operator()()` form: adapt it to the
