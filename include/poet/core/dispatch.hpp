@@ -71,20 +71,24 @@ namespace detail {
         using type = decltype(std::declval<Functor>().template operator()<V...>(std::declval<Args>()...));
     };
 
-    template<int Start, int... Is>
-    auto inclusive_range_impl(std::integer_sequence<int, Is...>) -> std::integer_sequence<int, (Start + Is)...>;
+    template<typename V, V Start, V... Is>
+    auto inclusive_range_impl(std::integer_sequence<V, Is...>)
+      -> std::integer_sequence<V, static_cast<V>(Start + Is)...>;
 
 }// namespace detail
 
-/// \brief Inclusive integer sequence `[Start, End]`.
-template<int Start, int End>
-using inclusive_range =
-  decltype(detail::inclusive_range_impl<Start>(std::make_integer_sequence<int, End - Start + 1>{}));
+/// \brief Inclusive integer sequence `[Start, End]`, in `Start`'s own value type.
+template<auto Start, decltype(Start) End>
+using inclusive_range = decltype(detail::inclusive_range_impl<decltype(Start), Start>(
+  std::make_integer_sequence<decltype(Start), End - Start + 1>{}));
 
 /// \brief Runtime value paired with the compile-time candidates to probe.
 template<typename Seq> struct dispatch_param {
-    int runtime_val;
     using seq_type = Seq;
+    /// The sequence's own value type: brace-init then rejects a narrowing runtime
+    /// value instead of silently truncating it.
+    using value_type = typename Seq::value_type;
+    value_type runtime_val;
 };
 
 namespace detail {
@@ -112,26 +116,34 @@ namespace detail {
 
     template<typename Sequence> struct sequence_first;
 
-    template<int First, int... Rest>
-    struct sequence_first<std::integer_sequence<int, First, Rest...>> : std::integral_constant<int, First> {};
+    template<typename V, V First, V... Rest>
+    struct sequence_first<std::integer_sequence<V, First, Rest...>> : std::integral_constant<V, First> {};
+
+    /// `high == low + 1`, phrased as a guarded difference so an unsigned value type
+    /// cannot wrap a descending pair into a spurious unit step.
+    template<typename V> constexpr auto steps_up(V low, V high) noexcept -> bool {
+        return high > low && high - low == 1;
+    }
 
     /// True when the values form a unit-stride run, ascending or descending.
     ///
     /// Monotonicity is required, not merely a span equal to the value count:
     /// `seq_lookup` resolves these by `position == distance from First`, which a
     /// permutation such as `{2, 0, 1}` satisfies in span but not in position.
-    template<int... Values> POET_CPP20_CONSTEVAL auto is_unit_stride() noexcept -> bool {
+    template<typename V, V... Values> POET_CPP20_CONSTEVAL auto is_unit_stride() noexcept -> bool {
         constexpr std::size_t count = sizeof...(Values);
         if constexpr (count < 2) {
             return true;
         } else {
-            constexpr std::array<int, count> values = { Values... };
-            constexpr int step = values[1] - values[0];
-            if constexpr (step != 1 && step != -1) {
+            constexpr std::array<V, count> values = { Values... };
+            constexpr bool ascending = steps_up(values[0], values[1]);
+            if constexpr (!ascending && !steps_up(values[1], values[0])) {
                 return false;
             } else {
                 for (std::size_t i = 2; i < count; ++i) {
-                    if (values[i] - values[i - 1] != step) { return false; }
+                    const bool unit = ascending ? steps_up(values[i - 1], values[i])
+                                                : steps_up(values[i], values[i - 1]);
+                    if (!unit) { return false; }
                 }
                 return true;
             }
@@ -140,18 +152,19 @@ namespace detail {
 
     template<typename Seq> struct is_contiguous_sequence : std::false_type {};
 
-    template<int First, int... Rest>
-    struct is_contiguous_sequence<std::integer_sequence<int, First, Rest...>>
-      : std::bool_constant<is_unit_stride<First, Rest...>()> {};
+    template<typename V, V First, V... Rest>
+    struct is_contiguous_sequence<std::integer_sequence<V, First, Rest...>>
+      : std::bool_constant<is_unit_stride<V, First, Rest...>()> {};
 
     template<typename Seq> struct sparse_index;
 
-    template<int... Values> struct sparse_index<std::integer_sequence<int, Values...>> {
-        using seq_type = std::integer_sequence<int, Values...>;
+    template<typename V, V... Values> struct sparse_index<std::integer_sequence<V, Values...>> {
+        using seq_type = std::integer_sequence<V, Values...>;
+        using value_type = V;
         static constexpr std::size_t value_count = sizeof...(Values);
 
         struct sorted_data_t {
-            std::array<int, value_count> sorted_keys{};
+            std::array<V, value_count> sorted_keys{};
             std::array<std::size_t, value_count> sorted_indices{};
         };
 
@@ -159,10 +172,10 @@ namespace detail {
         // preserves user-declared slot order while lookups can use ordered search (binary/strided).
         static constexpr sorted_data_t sorted_data = []() constexpr -> sorted_data_t {
             sorted_data_t out{};
-            out.sorted_keys = std::array<int, value_count>{ Values... };
+            out.sorted_keys = std::array<V, value_count>{ Values... };
             for (std::size_t i = 0; i < value_count; ++i) { out.sorted_indices[i] = i; }
             for (std::size_t i = 1; i < value_count; ++i) {
-                const int current_key = out.sorted_keys[i];
+                const V current_key = out.sorted_keys[i];
                 const std::size_t current_index = out.sorted_indices[i];
                 std::size_t insert_pos = i;
                 // Shift larger keys (and their original-position tags) right in lockstep
@@ -187,8 +200,8 @@ namespace detail {
             return count;
         }();
 
-        static constexpr std::array<int, unique_count> keys = []() constexpr -> std::array<int, unique_count> {
-            std::array<int, unique_count> out{};
+        static constexpr std::array<V, unique_count> keys = []() constexpr -> std::array<V, unique_count> {
+            std::array<V, unique_count> out{};
             if constexpr (value_count > 0) {
                 std::size_t out_i = 0;
                 out[out_i++] = sorted_data.sorted_keys[0];
@@ -229,40 +242,42 @@ namespace detail {
     /// would need.
     template<typename Seq, bool IsContiguous = is_contiguous_sequence<Seq>::value> struct seq_lookup;
 
-    template<int... Values> struct seq_lookup<std::integer_sequence<int, Values...>, true> {
-        static constexpr int first = sequence_first<std::integer_sequence<int, Values...>>::value;
+    template<typename V, V... Values> struct seq_lookup<std::integer_sequence<V, Values...>, true> {
+        static constexpr V first = sequence_first<std::integer_sequence<V, Values...>>::value;
         static constexpr std::size_t len = sizeof...(Values);
         static constexpr bool ascending = (first == std::min({ Values... }));
 
         static constexpr std::size_t count = len;
 
-        static POET_FORCEINLINE auto find(int value) -> std::size_t {
+        static POET_FORCEINLINE auto find(V value) -> std::size_t {
             // Unsigned subtraction sends "below first" far above `count`, so the
             // caller's `idx < count` test covers underflow and overflow alike.
-            if constexpr (ascending) {
-                return static_cast<std::size_t>(static_cast<unsigned int>(value) - static_cast<unsigned int>(first));
-            } else {
-                return static_cast<std::size_t>(static_cast<unsigned int>(first) - static_cast<unsigned int>(value));
-            }
+            // The width must be the value type's own, or a 64-bit miss could alias
+            // back into range after a 32-bit truncation.
+            using U = std::make_unsigned_t<V>;
+            const auto lhs = static_cast<U>(ascending ? value : first);
+            const auto rhs = static_cast<U>(ascending ? first : value);
+            return static_cast<std::size_t>(static_cast<U>(lhs - rhs));
         }
     };
 
     // Non-contiguous sequences: detect a uniform positive stride at compile time and
     // specialise `find` to a div/mod (strided) instead of a binary search (truly sparse).
-    template<int... Values> struct seq_lookup<std::integer_sequence<int, Values...>, false> {
-        using sparse_data = sparse_index<std::integer_sequence<int, Values...>>;
+    template<typename V, V... Values> struct seq_lookup<std::integer_sequence<V, Values...>, false> {
+        using sparse_data = sparse_index<std::integer_sequence<V, Values...>>;
 
         static constexpr bool is_strided = []() constexpr -> bool {
             if constexpr (sparse_data::unique_count < 2) {
                 return false;
             } else {
                 // Reject non-positive strides up front so `find` can use unsigned math.
-                constexpr int stride0 = sparse_data::keys[1] - sparse_data::keys[0];
-                if constexpr (stride0 <= 0) { return false; }
+                // Keys are sorted and unique, so the gap is positive in any value type.
+                constexpr V stride0 = static_cast<V>(sparse_data::keys[1] - sparse_data::keys[0]);
+                if constexpr (stride0 == 0) { return false; }
                 // cppcheck-suppress syntaxError
                 // All adjacent gaps must match `stride0`, otherwise fall back to binary search.
                 for (std::size_t i = 2; i < sparse_data::unique_count; ++i) {
-                    if (sparse_data::keys[i] - sparse_data::keys[i - 1] != stride0) { return false; }
+                    if (static_cast<V>(sparse_data::keys[i] - sparse_data::keys[i - 1]) != stride0) { return false; }
                 }
                 return true;
             }
@@ -278,16 +293,17 @@ namespace detail {
             return slot;
         }
 
-        static POET_FORCEINLINE auto find(int value) -> std::size_t {
+        static POET_FORCEINLINE auto find(V value) -> std::size_t {
             if constexpr (is_strided) {
-                static constexpr int first = sparse_data::keys[0];
-                static constexpr int stride = sparse_data::keys[1] - sparse_data::keys[0];
+                using U = std::make_unsigned_t<V>;
+                static constexpr V first = sparse_data::keys[0];
+                static constexpr V stride = static_cast<V>(sparse_data::keys[1] - sparse_data::keys[0]);
                 // Unsigned, so "below first" wraps past the upper bound and the
                 // two range ends collapse into the single `slot >=` test below.
                 // Keys are sorted, so `stride` is positive and the division is a shift.
-                const auto diff = static_cast<unsigned int>(value) - static_cast<unsigned int>(first);
-                if (diff % static_cast<unsigned int>(stride) != 0) { return count; }
-                const auto slot = static_cast<std::size_t>(diff / static_cast<unsigned int>(stride));
+                const auto diff = static_cast<U>(static_cast<U>(value) - static_cast<U>(first));
+                if (diff % static_cast<U>(stride) != 0) { return count; }
+                const auto slot = static_cast<std::size_t>(diff / static_cast<U>(stride));
                 if (slot >= sparse_data::unique_count) { return count; }
                 // Remap sorted position back to the user's declared slot.
                 return bounded(sparse_data::indices[slot]);
@@ -382,8 +398,7 @@ namespace detail {
         // First preference: value-argument form (passes std::integral_constant values as parameters).
         template<typename... Args>
         static auto compute_impl(std::true_type /*use_value_args*/)
-          -> decltype(std::declval<Functor &>()(std::integral_constant<int, sequence_first<Seq>::value>{}...,
-            std::declval<Args>()...));
+          -> decltype(std::declval<Functor &>()(sequence_first<Seq>{}..., std::declval<Args>()...));
 
         // Fallback: template-parameter form.
         template<typename... Args>
@@ -395,7 +410,7 @@ namespace detail {
         template<typename... Args>
         static auto compute()
           -> decltype(compute_impl<Args...>(std::integral_constant<bool,
-            std::is_invocable_v<Functor &, std::integral_constant<int, sequence_first<Seq>::value>..., Args...>>{}));
+            std::is_invocable_v<Functor &, sequence_first<Seq>..., Args...>>{}));
     };
 
     template<typename Functor, typename SequenceTuple, typename... Args> struct dispatch_result;
@@ -432,39 +447,40 @@ namespace detail {
 
     template<typename T> using pass_t = typename arg_pass<T>::type;
 
-    template<typename Functor, int Value, typename ArgPack> struct can_use_value_form : std::false_type {};
+    /// `IC` is the `integral_constant` the functor would receive, value type included.
+    template<typename Functor, typename IC, typename ArgPack> struct can_use_value_form : std::false_type {};
 
-    template<typename Functor, int Value, typename... Args>
-    struct can_use_value_form<Functor, Value, arg_pack<Args...>>
-      : std::bool_constant<std::is_invocable_v<Functor &, std::integral_constant<int, Value>, Args &&...>> {};
+    template<typename Functor, typename IC, typename... Args>
+    struct can_use_value_form<Functor, IC, arg_pack<Args...>>
+      : std::bool_constant<std::is_invocable_v<Functor &, IC, Args &&...>> {};
 
-    template<typename Functor, typename ArgPack, typename R, int... Values> struct table_builder;
+    template<typename Functor, typename ArgPack, typename R, typename V, V... Values> struct table_builder;
 
-    template<typename Functor, typename... Args, typename R, int... Values>
-    struct table_builder<Functor, arg_pack<Args...>, R, Values...> {
-        static constexpr int first_value = sequence_first<std::integer_sequence<int, Values...>>::value;
+    template<typename Functor, typename... Args, typename R, typename V, V... Values>
+    struct table_builder<Functor, arg_pack<Args...>, R, V, Values...> {
+        static constexpr V first_value = sequence_first<std::integer_sequence<V, Values...>>::value;
 
         // Each entry is a plain function pointer. Stateless functors are default-constructed
         // inside the thunk (no closure needed); stateful functors take the functor by ref so
         // the signature stays identical across all entries in the array.
-        template<int V> static POET_CPP20_CONSTEVAL auto make_entry() {
+        template<V Value> static POET_CPP20_CONSTEVAL auto make_entry() {
+            using ic = std::integral_constant<V, Value>;
+            constexpr bool use_value_form = can_use_value_form<Functor, ic, arg_pack<Args...>>::value;
             if constexpr (is_stateless_v<Functor>) {
                 return +[](pass_t<Args &&>... args) -> R {
                     Functor func{};
-                    constexpr bool use_value_form = can_use_value_form<Functor, V, arg_pack<Args...>>::value;
                     if constexpr (use_value_form) {
-                        return func(std::integral_constant<int, V>{}, std::forward<Args>(args)...);
+                        return func(ic{}, std::forward<Args>(args)...);
                     } else {
-                        return func.template operator()<V>(std::forward<Args>(args)...);
+                        return func.template operator()<Value>(std::forward<Args>(args)...);
                     }
                 };
             } else {
                 return +[](Functor &func, pass_t<Args &&>... args) -> R {
-                    constexpr bool use_value_form = can_use_value_form<Functor, V, arg_pack<Args...>>::value;
                     if constexpr (use_value_form) {
-                        return func(std::integral_constant<int, V>{}, std::forward<Args>(args)...);
+                        return func(ic{}, std::forward<Args>(args)...);
                     } else {
-                        return func.template operator()<V>(std::forward<Args>(args)...);
+                        return func.template operator()<Value>(std::forward<Args>(args)...);
                     }
                 };
             }
@@ -476,9 +492,9 @@ namespace detail {
         }
     };
 
-    template<typename Functor, typename ArgPack, typename R, int... Values>
-    POET_CPP20_CONSTEVAL auto make_dispatch_table(std::integer_sequence<int, Values...> /*seq*/) {
-        return table_builder<Functor, ArgPack, R, Values...>::make();
+    template<typename Functor, typename ArgPack, typename R, typename V, V... Values>
+    POET_CPP20_CONSTEVAL auto make_dispatch_table(std::integer_sequence<V, Values...> /*seq*/) {
+        return table_builder<Functor, ArgPack, R, V, Values...>::make();
     }
 
     template<typename Functor, typename ArgPack, typename SeqTuple, typename IndexSeq> struct nd_table_builder;
@@ -491,24 +507,25 @@ namespace detail {
 
         template<std::size_t I, typename Seq> struct get_sequence_value;
 
-        template<std::size_t I, int... Values> struct get_sequence_value<I, std::integer_sequence<int, Values...>> {
-            static constexpr std::array<int, sizeof...(Values)> values = { Values... };
-            static constexpr int value = values[I];
+        template<std::size_t I, typename V, V... Values>
+        struct get_sequence_value<I, std::integer_sequence<V, Values...>> {
+            static constexpr std::array<V, sizeof...(Values)> values = { Values... };
+            static constexpr V value = values[I];
         };
 
         // Decode a flat table index back to its per-dimension coordinate via row-major strides.
         template<std::size_t FlatIdx, std::size_t DimIdx>
         static constexpr std::size_t dim_index_v = FlatIdx / strides_[DimIdx] % dims_[DimIdx];
 
-        // For a given flat index, materialises the tuple of per-dim values as an array and
-        // exposes each as `integral_constant<int, V>` via `ic<N>` — that's what the functor sees.
+        // For a given flat index, exposes each dimension's value as `ic<N>` — that is
+        // what the functor sees. Each dimension keeps its OWN value type, so this
+        // cannot go through one shared array.
         template<std::size_t FlatIdx, std::size_t... SeqIdx> struct value_extractor {
-            static constexpr std::array<int, sizeof...(SeqIdx)> values = {
-                get_sequence_value<dim_index_v<FlatIdx, SeqIdx>,
-                  std::tuple_element_t<SeqIdx, std::tuple<Seqs...>>>::value...
-            };
+            template<std::size_t N> using seq_at = std::tuple_element_t<N, std::tuple<Seqs...>>;
 
-            template<std::size_t N> using ic = std::integral_constant<int, values[N]>;
+            template<std::size_t N>
+            using ic = std::integral_constant<typename seq_at<N>::value_type,
+              get_sequence_value<dim_index_v<FlatIdx, N>, seq_at<N>>::value>;
         };
 
         template<std::size_t FlatIdx> struct nd_index_caller {
@@ -637,7 +654,7 @@ namespace detail {
     POET_FORCEINLINE auto dispatch_1d(Functor &functor, ParamTuple const &params, Args &&...args) -> R {
         using FirstParam = std::tuple_element_t<0, std::remove_reference_t<ParamTuple>>;
         using Seq = typename FirstParam::seq_type;
-        const int runtime_val = std::get<0>(params).runtime_val;
+        const auto runtime_val = std::get<0>(params).runtime_val;
         const std::size_t idx = seq_lookup<Seq>::find(runtime_val);
 
         if (idx < seq_lookup<Seq>::count) {

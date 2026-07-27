@@ -1189,3 +1189,41 @@ TEST_CASE("dispatch permuted sequence resolves to the declared slot", "[static_d
         REQUIRE(dispatch(identity, std::make_tuple(dispatch_param<Descending>{ value })) == value);
     }
 }
+
+TEST_CASE("dispatch carries the sequence's own value type", "[static_dispatch][value_type]") {
+    // The table machinery used to be specialised on integer_sequence<int, ...>, so
+    // any other value type died on an incomplete-type avalanche rather than a
+    // diagnosable error. The value type must survive all the way to the functor.
+    using Sizes = std::integer_sequence<std::size_t, 2, 3, 4>;
+
+    auto type_of = [](auto V) { return std::is_same_v<typename decltype(V)::value_type, std::size_t>; };
+    for (std::size_t value : { std::size_t{ 2 }, std::size_t{ 3 }, std::size_t{ 4 } }) {
+        REQUIRE(dispatch(type_of, std::make_tuple(dispatch_param<Sizes>{ value })));
+    }
+
+    // Sparse and descending runs, where `find` does unsigned arithmetic in the
+    // value type's own width: a 32-bit miss must not alias back into range.
+    using Sparse = std::integer_sequence<std::size_t, 8, 64, 4096>;
+    auto identity = [](auto V) { return static_cast<std::size_t>(V); };
+    for (std::size_t value : { std::size_t{ 8 }, std::size_t{ 64 }, std::size_t{ 4096 } }) {
+        REQUIRE(dispatch(identity, std::make_tuple(dispatch_param<Sparse>{ value })) == value);
+    }
+    REQUIRE(dispatch(identity, std::make_tuple(dispatch_param<Sparse>{ std::size_t{ 7 } })) == 0);
+
+    using Down = std::integer_sequence<std::size_t, 4, 3, 2>;
+    for (std::size_t value : { std::size_t{ 4 }, std::size_t{ 3 }, std::size_t{ 2 } }) {
+        REQUIRE(dispatch(identity, std::make_tuple(dispatch_param<Down>{ value })) == value);
+    }
+    // Below `first` on an unsigned type: the wrap must land past `count`, not at slot 0.
+    REQUIRE(dispatch(identity, std::make_tuple(dispatch_param<Down>{ std::size_t{ 1 } })) == 0);
+
+    // Mixed value types across dimensions of one ND dispatch.
+    using Small = std::integer_sequence<short, 1, 2>;
+    auto pair_ok = [](auto Isz, auto Ish) {
+        return std::is_same_v<typename decltype(Isz)::value_type, std::size_t> &&
+               std::is_same_v<typename decltype(Ish)::value_type, short> &&
+               static_cast<int>(Isz) * 10 + static_cast<int>(Ish);
+    };
+    REQUIRE(dispatch(pair_ok,
+      std::make_tuple(dispatch_param<Sizes>{ std::size_t{ 3 } }, dispatch_param<Small>{ short{ 2 } })));
+}
