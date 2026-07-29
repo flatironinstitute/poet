@@ -35,22 +35,15 @@ namespace detail {
 
     /// \brief True when `Callable` accepts the loop index as an integral_constant.
     ///
-    /// Overload resolution, not `std::is_invocable_v`: the latter instantiates the
-    /// `__invoke_result` / `__result_of_impl` class-template chain once per
-    /// (callable, index) pair, which dominates frontend time in translation units
-    /// that instantiate `static_for` thousands of times. Measured on one FFT
-    /// engine TU (14251 static_for instantiations): 34537 class instantiations /
-    /// 53.2s of clang `InstantiateClass` down to 1021 / 1.3s, ~6% off total
-    /// compile time on gcc-14 and clang-19 alike, with byte-identical objects.
+    /// Function overloads rather than `std::is_invocable_v` or a detector class:
+    /// both instantiate a class template per (callable, index) pair, which
+    /// dominates frontend time once a TU has thousands of `static_for`s. On one
+    /// FFT TU (14251 instantiations) that was 34537 class instantiations / 53.2s
+    /// of clang `InstantiateClass` down to 1021 / 1.3s, identical objects.
+    /// `int` beats `long` on the `0` argument, so no variadic fallback is needed.
     ///
-    /// Deliberately narrower than `is_invocable`: it detects a direct call, not
-    /// full INVOKE semantics. `static_for` only ever calls `func(ic)`.
-    /// Not a concept — poet also builds as C++17, and this form is
-    /// standard-agnostic. Function overloads rather than a detector class
-    /// template: a class would reintroduce one class instantiation per
-    /// (callable, index) pair, which is the cost being removed. `int` beats
-    /// `long` on an exact match for the `0` argument, so the viable branch is
-    /// picked without a C-style variadic fallback.
+    /// Narrower than `is_invocable` on purpose: it detects a direct `func(ic)`
+    /// call, which is all `static_for` ever performs.
     template<typename Callable, std::ptrdiff_t I>
     constexpr auto detect_takes_index(int /*rank*/) noexcept
       -> decltype(std::declval<Callable &>()(std::integral_constant<std::ptrdiff_t, I>{}), true) {
@@ -113,11 +106,12 @@ POET_FORCEINLINE constexpr void static_for(Func &&func) {
     }
 }
 
-#ifndef DOXYGEN_SHOULD_SKIP_THIS
 /// \brief Convenience overload for `static_for<0, End>(func)`.
+///
+/// \tparam End Exclusive terminator of the range `[0, End)`.
+/// \param func Callable instance invoked once per iteration.
 template<std::ptrdiff_t End, typename Func> POET_FORCEINLINE constexpr void static_for(Func &&func) {
     static_for<0, End>(std::forward<Func>(func));
 }
-#endif
 
 }// namespace poet

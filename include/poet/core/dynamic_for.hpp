@@ -36,6 +36,7 @@
 #include <type_traits>
 #include <utility>
 
+#include <poet/core/for_utils.hpp>
 #include <poet/core/macros.hpp>
 
 
@@ -182,8 +183,11 @@ namespace detail {
     ///
     /// Each level spends one branch deciding whether its upper half is present
     /// and emits that half as a fully unrolled block, so the tail costs
-    /// O(log2 N) branches rather than the O(N) of a linear cascade. Technique
-    /// from Andrei Alexandrescu's CppCon 2025 talk.
+    /// O(log2 N) branches rather than the O(N) of a linear cascade.
+    ///
+    /// Lanes restart at 0 in each emitted block, so a tail iteration's lane is
+    /// not `index % Unroll`. Per-lane accumulators stay correct; code that
+    /// assumes a specific lane-to-iteration mapping does not.
     template<std::size_t N, bool WantsLane, typename Func, typename T, typename Stride, typename... Args>
     POET_FORCEINLINE void tail_binary(std::size_t count, Func &func, T index, Stride stride, Args... args) {
         if constexpr (N > 1) {
@@ -269,12 +273,6 @@ namespace detail {
     }
 
     POET_POP_OPTIMIZE
-
-    /// Binds an lvalue callable as-is; materialises an rvalue into a named local
-    /// so `run_loop` can take it by reference without a lambda indirection.
-    template<typename Func>
-    using callable_storage_t =
-      std::conditional_t<std::is_lvalue_reference_v<Func>, Func, std::remove_reference_t<Func>>;
 
 }// namespace detail
 
@@ -405,7 +403,7 @@ POET_FORCEINLINE void dynamic_for(std::size_t count, Func &&func, Args... args) 
 }// namespace poet
 
 
-#if __cplusplus >= 202002L
+#if POET_CPLUSPLUS >= 202002L
 #include <ranges>
 #include <tuple>
 
@@ -453,4 +451,4 @@ template<std::size_t U, typename F> constexpr auto make_dynamic_for(F &&f) -> dy
 }
 
 }// namespace poet
-#endif// __cplusplus >= 202002L
+#endif// POET_CPLUSPLUS >= 202002L

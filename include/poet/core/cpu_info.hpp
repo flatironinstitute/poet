@@ -1,5 +1,13 @@
 #pragma once
 
+/// \file cpu_info.hpp
+/// \brief Compile-time CPU register, vector-width, and cache-line queries.
+///
+/// Everything here is resolved from the compiler's target predefines, so the
+/// answers describe the machine the code is being *compiled* for, not the one it
+/// happens to run on. Build with `-march=native` (or an explicit `-m<isa>`) to
+/// get anything above the baseline.
+
 #include <cstddef>
 #include <poet/core/macros.hpp>
 
@@ -20,20 +28,26 @@ enum class instruction_set : unsigned char {
     mips_msa,///< MIPS MSA (128-bit vectors)
 };
 
-/// Register and vector characteristics for a target ISA.
+/// \brief Register and vector characteristics for a target ISA.
+///
+/// Counts are the architectural totals, not the number free for a given
+/// function: on x86-64 `gp_registers` includes the stack and frame pointers.
 struct register_info {
-    std::size_t gp_registers;
-    std::size_t vector_registers;
-    std::size_t vector_width_bits;
-    std::size_t lanes_64bit;
-    std::size_t lanes_32bit;
-    instruction_set isa;
+    std::size_t gp_registers;///< Architectural general-purpose registers.
+    std::size_t vector_registers;///< Architectural SIMD registers.
+    std::size_t vector_width_bits;///< Width of one SIMD register, in bits.
+    std::size_t lanes_64bit;///< 64-bit lanes per SIMD register.
+    std::size_t lanes_32bit;///< 32-bit lanes per SIMD register.
+    instruction_set isa;///< The ISA these numbers describe.
 };
 
-/// Cache line sizes used for padding and alignment decisions.
+/// \brief Cache line sizes used for padding and alignment decisions.
+///
+/// The `std::hardware_*_interference_size` pair, without requiring C++17
+/// library support for them.
 struct cache_line_info {
-    std::size_t destructive_size;
-    std::size_t constructive_size;
+    std::size_t destructive_size;///< Separate to avoid false sharing.
+    std::size_t constructive_size;///< Pack within to share a line.
 };
 
 namespace detail {
@@ -66,6 +80,18 @@ namespace detail {
 
 #ifdef __SSE2__
         return instruction_set::sse2;
+#endif
+
+        // MSVC ships none of the __SSE*__ / __ARM_NEON predefines: x64 and ARM64
+        // guarantee SSE2 and NEON respectively, and 32-bit x86 reports its
+        // floating-point ISA through _M_IX86_FP instead. Without this, every
+        // MSVC build below /arch:AVX reports `generic`.
+#if defined(_M_X64) || defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+        return instruction_set::sse2;
+#endif
+
+#ifdef _M_ARM64
+        return instruction_set::arm_neon;
 #endif
 
 #if defined(__ARM_FEATURE_SVE2) || defined(__ARM_FEATURE_SVE2__)
@@ -224,37 +250,47 @@ namespace detail {
 
 }// namespace detail
 
-/// Detects the compile target ISA from compiler defines.
+/// \brief The ISA the current translation unit is being compiled for.
+///
+/// Returns `instruction_set::generic` when no SIMD ISA is enabled.
 POET_CPP20_CONSTEVAL auto detected_isa() noexcept -> instruction_set { return detail::detect_instruction_set(); }
 
-/// Register information for the detected ISA.
+/// \brief Register information for `detected_isa()`.
 POET_CPP20_CONSTEVAL auto available_registers() noexcept -> register_info {
     return detail::get_register_info(detected_isa());
 }
 
-/// Register information for a specific ISA.
+/// \brief Register information for an explicitly named ISA.
+/// \param isa The ISA to describe, independent of the build's own target.
 POET_CPP20_CONSTEVAL auto registers_for(instruction_set isa) noexcept -> register_info {
     return detail::get_register_info(isa);
 }
 
+/// \brief SIMD register count for the detected ISA.
 POET_CPP20_CONSTEVAL auto vector_register_count() noexcept -> std::size_t {
     return available_registers().vector_registers;
 }
 
+/// \brief SIMD register width in bits for the detected ISA.
 POET_CPP20_CONSTEVAL auto vector_width_bits() noexcept -> std::size_t {
     return available_registers().vector_width_bits;
 }
 
+/// \brief 64-bit lanes per SIMD register for the detected ISA.
 POET_CPP20_CONSTEVAL auto vector_lanes_64bit() noexcept -> std::size_t { return available_registers().lanes_64bit; }
 
+/// \brief 32-bit lanes per SIMD register for the detected ISA.
 POET_CPP20_CONSTEVAL auto vector_lanes_32bit() noexcept -> std::size_t { return available_registers().lanes_32bit; }
 
+/// \brief Cache line sizes for the detected target.
 POET_CPP20_CONSTEVAL auto cache_line() noexcept -> cache_line_info { return detail::detect_cache_line_info(); }
 
+/// \brief Minimum separation that avoids false sharing.
 POET_CPP20_CONSTEVAL auto destructive_interference_size() noexcept -> std::size_t {
     return cache_line().destructive_size;
 }
 
+/// \brief Maximum span that shares one cache line.
 POET_CPP20_CONSTEVAL auto constructive_interference_size() noexcept -> std::size_t {
     return cache_line().constructive_size;
 }

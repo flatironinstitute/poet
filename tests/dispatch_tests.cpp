@@ -103,6 +103,13 @@ struct tuple_sum {
     template<int X, int Y> int operator()(int base) const { return base + X + Y; }
 };
 
+// Mutates itself, so the caller sees the effect only if dispatch holds the
+// functor by reference rather than copying it.
+struct tuple_accumulator {
+    int total = 0;
+    template<int X, int Y> void operator()() { total += X + Y; }
+};
+
 struct tuple_voider {
     int *out;
     template<int X, int Y> void operator()(int add) const { *out = add + X + Y; }
@@ -848,24 +855,34 @@ TEST_CASE("dispatch_set with 3-tuples and throw_on_no_match", "[static_dispatch]
     REQUIRE_THROWS_AS(dispatch(throw_on_no_match, ::triple_sum{}, ds_invalid, 10), std::runtime_error);
 }
 
+TEST_CASE("dispatch_set propagates a stateful functor's mutations", "[static_dispatch][tuples][stateful]") {
+    using DS = dispatch_set<int, tuple_<1, 2>, tuple_<3, 4>>;
+    ::tuple_accumulator acc{};
+    dispatch(acc, DS(3, 4));
+    REQUIRE(acc.total == 7);
+}
+
 TEST_CASE("dispatch_tuples_impl matches correct tuple", "[static_dispatch][tuples][internal]") {
     using TL = std::tuple<std::integer_sequence<int, 1, 2>, std::integer_sequence<int, 3, 4>>;
     auto rt = std::make_tuple(3, 4);
-    auto result = poet::detail::dispatch_tuples_impl<false>(tuple_sum{}, TL{}, rt, 10);
+    tuple_sum sum{};
+    auto result = poet::detail::dispatch_tuples_impl<false>(sum, TL{}, rt, 10);
     REQUIRE(result == 17);
 }
 
 TEST_CASE("dispatch_tuples_impl returns default on no match", "[static_dispatch][tuples][internal]") {
     using TL = std::tuple<std::integer_sequence<int, 1, 2>>;
     auto rt = std::make_tuple(9, 9);
-    auto result = poet::detail::dispatch_tuples_impl<false>(tuple_sum{}, TL{}, rt, 5);
+    tuple_sum sum{};
+    auto result = poet::detail::dispatch_tuples_impl<false>(sum, TL{}, rt, 5);
     REQUIRE(result == 0);
 }
 
 TEST_CASE("dispatch_tuples_impl throws on no match with ThrowOnNoMatch", "[static_dispatch][tuples][internal]") {
     using TL = std::tuple<std::integer_sequence<int, 1, 2>>;
     auto rt = std::make_tuple(9, 9);
-    REQUIRE_THROWS_AS(poet::detail::dispatch_tuples_impl<true>(tuple_sum{}, TL{}, rt, 5), std::runtime_error);
+    tuple_sum sum{};
+    REQUIRE_THROWS_AS(poet::detail::dispatch_tuples_impl<true>(sum, TL{}, rt, 5), std::runtime_error);
 }
 
 // ============================================================================
@@ -1220,10 +1237,10 @@ TEST_CASE("dispatch carries the sequence's own value type", "[static_dispatch][v
     // Mixed value types across dimensions of one ND dispatch.
     using Small = std::integer_sequence<short, 1, 2>;
     auto pair_ok = [](auto Isz, auto Ish) {
-        return std::is_same_v<typename decltype(Isz)::value_type, std::size_t> &&
-               std::is_same_v<typename decltype(Ish)::value_type, short> &&
-               static_cast<int>(Isz) * 10 + static_cast<int>(Ish);
+        return std::is_same_v<typename decltype(Isz)::value_type, std::size_t>
+               && std::is_same_v<typename decltype(Ish)::value_type, short>
+               && static_cast<int>(Isz) * 10 + static_cast<int>(Ish);
     };
-    REQUIRE(dispatch(pair_ok,
-      std::make_tuple(dispatch_param<Sizes>{ std::size_t{ 3 } }, dispatch_param<Small>{ short{ 2 } })));
+    REQUIRE(dispatch(
+      pair_ok, std::make_tuple(dispatch_param<Sizes>{ std::size_t{ 3 } }, dispatch_param<Small>{ short{ 2 } })));
 }

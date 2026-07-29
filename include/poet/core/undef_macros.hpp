@@ -18,6 +18,7 @@
 // (`#undef` of an undefined macro is a well-formed no-op, so nothing is guarded.)
 #undef POET_CORE_MACROS_HPP
 
+#undef POET_CPLUSPLUS
 #undef POET_UNREACHABLE
 #undef POET_FORCEINLINE
 #undef POET_ALWAYS_INLINE_LAMBDA

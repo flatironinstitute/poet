@@ -11,6 +11,11 @@
 
 namespace poet::detail {
 
+/// Binds an lvalue callable as-is; materialises an rvalue into a named local so
+/// the loop bodies can take it by reference without a lambda indirection.
+template<typename Func>
+using callable_storage_t = std::conditional_t<std::is_lvalue_reference_v<Func>, Func, std::remove_reference_t<Func>>;
+
 template<std::ptrdiff_t Begin, std::ptrdiff_t End, std::ptrdiff_t Step>
 [[nodiscard]] POET_CPP20_CONSTEVAL auto compute_range_count() noexcept -> std::size_t {
     static_assert(Step != 0, "static_for requires a non-zero step");

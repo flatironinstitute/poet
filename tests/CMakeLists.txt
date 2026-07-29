@@ -251,6 +251,27 @@ if(TARGET poet_tests_std17)
   add_custom_target(poet_tests DEPENDS poet_tests_std17)
 endif()
 
+# Every public header must compile on its own, not just via poet.hpp — an include
+# missing from one header is invisible when the umbrella pulls its siblings first.
+file(GLOB_RECURSE POET_PUBLIC_HEADERS
+  RELATIVE "${CMAKE_SOURCE_DIR}/include/poet"
+  "${CMAKE_SOURCE_DIR}/include/poet/*.hpp")
+list(REMOVE_ITEM POET_PUBLIC_HEADERS core/undef_macros.hpp)  # undefines only; nothing to compile
+
+set(POET_STANDALONE_SRCS "")
+foreach(POET_HEADER IN LISTS POET_PUBLIC_HEADERS)
+  string(REGEX REPLACE "[/.]" "_" _stem "${POET_HEADER}")
+  configure_file(standalone_header.cpp.in "${CMAKE_CURRENT_BINARY_DIR}/standalone_${_stem}.cpp" @ONLY)
+  list(APPEND POET_STANDALONE_SRCS "${CMAKE_CURRENT_BINARY_DIR}/standalone_${_stem}.cpp")
+endforeach()
+
+add_library(poet_standalone_headers OBJECT ${POET_STANDALONE_SRCS})
+target_link_libraries(poet_standalone_headers PRIVATE poet)
+target_compile_features(poet_standalone_headers PRIVATE cxx_std_17)
+if(POET_STRICT_WARNINGS)
+  poet_enable_warnings(poet_standalone_headers)
+endif()
+
 add_executable(poet_header_analysis header_analysis.cpp)
 target_link_libraries(poet_header_analysis PRIVATE poet)
 target_compile_features(poet_header_analysis PRIVATE cxx_std_17)

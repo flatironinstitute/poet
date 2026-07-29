@@ -12,6 +12,9 @@
 #ifdef POET_CPP20_CONSTEVAL
 #error "poet.hpp leaked POET_CPP20_CONSTEVAL"
 #endif
+#ifdef POET_CPLUSPLUS
+#error "poet.hpp leaked POET_CPLUSPLUS"
+#endif
 
 #include <poet/core/macros.hpp>
 

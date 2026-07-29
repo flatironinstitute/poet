@@ -5,6 +5,19 @@
 /// \brief Compiler-specific macros for portability and optimization.
 
 // ============================================================================
+// POET_CPLUSPLUS
+// ============================================================================
+/// The language standard actually in effect. MSVC leaves `__cplusplus` at
+/// 199711L unless `/Zc:__cplusplus` is passed, so testing it directly hides
+/// every C++20 code path from MSVC users -- silently, since `#if` on an
+/// undefined macro is 0 rather than an error.
+#ifdef _MSVC_LANG
+#define POET_CPLUSPLUS _MSVC_LANG// NOLINT(cppcoreguidelines-macro-usage)
+#else
+#define POET_CPLUSPLUS __cplusplus// NOLINT(cppcoreguidelines-macro-usage)
+#endif
+
+// ============================================================================
 // POET_UNREACHABLE
 // ============================================================================
 /// Marks a code path as unreachable. UB if reached at runtime.
@@ -91,7 +104,7 @@
 
 #include <cstddef>
 
-#if __cplusplus >= 202002L
+#if POET_CPLUSPLUS >= 202002L
 #include <bit>
 #elif defined(_MSC_VER)
 #include <intrin.h>
@@ -99,7 +112,7 @@
 
 namespace poet::detail {
 
-#if __cplusplus >= 202002L
+#if POET_CPLUSPLUS >= 202002L
 
 constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int {
     return static_cast<unsigned int>(std::countr_zero(value));
@@ -177,10 +190,12 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 /// GCC register-allocator tuning for hot paths. Wrap performance-critical
 /// function groups in POET_PUSH_OPTIMIZE / POET_POP_OPTIMIZE pairs.
 ///
-/// At -O3 (POET_HIGH_OPTIMIZATION=1) on GCC, enables IRA pressure flags
-/// (-fira-hoist-pressure, -fno-ira-share-spill-slots, -frename-registers)
-/// that improve register allocation in unrolled and isolated blocks.
-/// Without -O3, promotes the section to -O3.
+/// When the build is already optimizing for speed (POET_HIGH_OPTIMIZATION=1) on
+/// GCC, enables IRA pressure flags (-fira-hoist-pressure,
+/// -fno-ira-share-spill-slots, -frename-registers) that improve register
+/// allocation in unrolled and isolated blocks. It never raises the
+/// optimization level: a `-O0`/`-Og` build stays debuggable and a `-Os`/`-Oz`
+/// build stays small.
 /// On MSVC, enables aggressive optimization (/Ogt).
 /// On Clang and others: no-op (Clang cannot enable optimizations via pragma).
 ///
@@ -188,20 +203,14 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #ifndef POET_DISABLE_PUSH_OPTIMIZE
 #if defined(__GNUC__) && !defined(__clang__)
 #if POET_HIGH_OPTIMIZATION
-// At -O3: Apply IRA pressure tuning + semantic-interposition removal for hot paths.
-// -fno-semantic-interposition: allow inlining/IPO across function boundaries
-//   (GCC default assumes exported symbols may be LD_PRELOAD-interposed, which
-//    blocks optimizations even within the same TU; safe for header-only POET).
-// -fvect-cost-model=cheap: allow vectorization even when GCC's cost model is
-//   uncertain (helps SLP-vectorize independent accumulator chains in static_for).
-//
-// Vector width: prefer the widest SIMD width enabled at compile time.
-//   GCC 13/14 sometimes drop to 128-bit even with AVX2; -mprefer-vector-width
-//   ensures hot paths use the full register width. On AArch64 SVE, -msve-vector-bits
-//   locks the VL so the compiler can unroll without predication overhead.
-//   Uses #pragma GCC target (not optimize) since these are machine flags.
-//   Scoped to push/pop, so it does not affect user code outside POET internals.
-//   On SSE-only x86 and NEON (fixed 128-bit): no target pragma needed.
+// -fno-semantic-interposition: GCC otherwise assumes exported symbols may be
+//   LD_PRELOAD-interposed, which blocks IPO even within one TU.
+// -fvect-cost-model=cheap: vectorize when the cost model is merely uncertain,
+//   which is what SLP needs to pack static_for's independent accumulators.
+// Vector width: GCC 13/14 sometimes drop to 128-bit even with AVX2 enabled;
+//   on SVE, pinning the VL lets it unroll without predication. Machine flags,
+//   so `target` rather than `optimize`, and scoped to the push/pop so user code
+//   outside POET is unaffected. Fixed-128-bit ISAs need no pragma.
 
 // -- Internal: optimization flags common to all GCC hot paths
 #define POET_PUSH_OPTIMIZE_BASE_                                                                              \
@@ -227,9 +236,9 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #define POET_PUSH_OPTIMIZE POET_PUSH_OPTIMIZE_BASE_ POET_PUSH_VECTOR_WIDTH_
 #define POET_POP_OPTIMIZE _Pragma("GCC pop_options")
 #else
-// Without -O3: Enable -O3 for this section
-#define POET_PUSH_OPTIMIZE _Pragma("GCC push_options") _Pragma("GCC optimize(\"-O3\")")
-#define POET_POP_OPTIMIZE _Pragma("GCC pop_options")
+// Not optimizing for speed (-O0/-Og/-Os/-Oz): leave the caller's level alone.
+#define POET_PUSH_OPTIMIZE
+#define POET_POP_OPTIMIZE
 #endif
 #elif defined(_MSC_VER)
 // In Debug builds, /RTC1 (runtime checks) is incompatible with /O2.
@@ -256,7 +265,7 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 // C++20 Feature Detection
 // ============================================================================
 /// Use `consteval` for C++20+, fallback to `constexpr` for C++17.
-#if __cplusplus >= 202002L
+#if POET_CPLUSPLUS >= 202002L
 #define POET_CPP20_CONSTEVAL consteval
 #else
 #define POET_CPP20_CONSTEVAL constexpr
