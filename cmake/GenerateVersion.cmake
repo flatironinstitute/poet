@@ -15,9 +15,9 @@
 # Let BASE = contents of ./VERSION (e.g. 0.0.0). Let TAG = `git describe
 # --exact-match --tags HEAD` (stripped of a leading `v`). If TAG == BASE we are
 # on an exact release commit and POET_VERSION_FULL = BASE. Otherwise the suffix
-# is `-dev.N` where N = `git rev-list --count <last-v-tag>..HEAD` if any
-# `v<BASE>` tag exists, else `git rev-list --count HEAD`. With no git available
-# (release tarball, vendored copy) POET_VERSION_FULL = BASE.
+# is `-dev.N` where N is the number of commits since the nearest reachable tag
+# (whole history if the repo has no tags at all). With no git available (release
+# tarball, vendored copy) POET_VERSION_FULL = BASE.
 #
 # N is derived from committed history only, so it advances only when a new
 # commit lands, never from the index or the working tree.
@@ -66,28 +66,27 @@ if(Git_FOUND AND EXISTS "${_poet_src}/.git")
   endif()
 
   if(NOT _on_exact_tag)
-    # Look for a v<BASE> tag so we can count commits since it.
+    # Count from the nearest reachable tag, not from v<BASE>: right after a
+    # release the base is already bumped, so no v<BASE> tag exists yet and
+    # counting whole history would report a meaningless total.
     execute_process(
-      COMMAND "${GIT_EXECUTABLE}" -C "${_poet_src}" rev-parse --verify --quiet "v${POET_VERSION_STRING}"
-      OUTPUT_QUIET
+      COMMAND "${GIT_EXECUTABLE}" -C "${_poet_src}" describe --tags --abbrev=0
+      OUTPUT_VARIABLE _last_tag
       ERROR_QUIET
+      OUTPUT_STRIP_TRAILING_WHITESPACE
       RESULT_VARIABLE _rc
     )
-    if(_rc EQUAL 0)
-      execute_process(
-        COMMAND "${GIT_EXECUTABLE}" -C "${_poet_src}" rev-list --count "v${POET_VERSION_STRING}..HEAD"
-        OUTPUT_VARIABLE _commit_count
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-      )
+    if(NOT _rc EQUAL 0)
+      set(_range "HEAD")# no tag anywhere: count all of history
     else()
-      execute_process(
-        COMMAND "${GIT_EXECUTABLE}" -C "${_poet_src}" rev-list --count HEAD
-        OUTPUT_VARIABLE _commit_count
-        ERROR_QUIET
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-      )
+      set(_range "${_last_tag}..HEAD")
     endif()
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" -C "${_poet_src}" rev-list --count "${_range}"
+      OUTPUT_VARIABLE _commit_count
+      ERROR_QUIET
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
   endif()
 
 endif()
