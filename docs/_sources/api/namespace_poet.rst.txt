@@ -1,0 +1,102 @@
+
+.. _namespace_poet:
+
+Namespace poet
+==============
+
+
+.. contents:: Contents
+   :local:
+   :backlinks: none
+
+
+
+
+
+Classes
+-------
+
+
+- :ref:`exhale_struct_structpoet_1_1cache__line__info`
+
+- :ref:`exhale_struct_structpoet_1_1dispatch__param`
+
+- :ref:`exhale_struct_structpoet_1_1dispatch__set`
+
+- :ref:`exhale_struct_structpoet_1_1dispatch__set_1_1convert__tuple`
+
+- :ref:`exhale_struct_structpoet_1_1dispatch__set_1_1convert__tuple_3_01tuple___3_01_vs_8_8_8_01_4_01_4`
+
+- :ref:`exhale_struct_structpoet_1_1dispatch__set_1_1same__arity`
+
+- :ref:`exhale_struct_structpoet_1_1dynamic__for__adaptor`
+
+- :ref:`exhale_struct_structpoet_1_1no__match__error`
+
+- :ref:`exhale_struct_structpoet_1_1register__info`
+
+- :ref:`exhale_struct_structpoet_1_1throw__on__no__match__t`
+
+- :ref:`exhale_struct_structpoet_1_1tuple__`
+
+
+Enums
+-----
+
+
+- :ref:`exhale_enum_cpu__info_8hpp_1a13f162022ee5b308163ebff1db0cf306`
+
+
+Functions
+---------
+
+
+- :ref:`exhale_function_cpu__info_8hpp_1aeb7795523b24a4c7d516edeb36a8ea5a`
+
+- :ref:`exhale_function_cpu__info_8hpp_1ab5871e05f4138916616783e664cfb8d3`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a8aa50b5999342d75db2aae5904a07720`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a053df300f1c07cfa04ca1dfafdc851fe`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a1b4ced72a81daa6c6529d61055eedba0`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1a52d6ae56a994d308ee69791a75a72ffb`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1aa2012fff315beae2c9dc17d866c4430b`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1a040af26fef3690a8dcba589c107ea0af`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a1238544685f5461d8a7f5c5169c30b55`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a23512f83efe3d17d5276d108a1aef838`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a1762a855485f7c23a5953aef5509bf66`
+
+- :ref:`exhale_function_cpu__info_8hpp_1aaa17a98080d98a19df3a24fbc76b6f9a`
+
+- :ref:`exhale_function_cpu__info_8hpp_1aca25501234c2061f0b1165fa80c1a253`
+
+
+Typedefs
+--------
+
+
+- :ref:`exhale_typedef_dispatch_8hpp_1aa4bfd5b4c4e4dcb29eebe0270dc91dd2`
+
+
+Variables
+---------
+
+
+- :ref:`exhale_variable_dispatch_8hpp_1a7e30452aafbc35be56c4aee4df34fd61`
+
+- :ref:`exhale_variable_version_8hpp_1a8b2530c09633370fffbb3f6a501267eb`
+
+- :ref:`exhale_variable_version_8hpp_1a0d2f16c22496911d684dbf31b8e79aeb`
+
+- :ref:`exhale_variable_version_8hpp_1ae49f4198604232490431c2af628040aa`
+
+- :ref:`exhale_variable_version_8hpp_1ad7abaf6a52908ec082e2b016644f4453`
+
+- :ref:`exhale_variable_version_8hpp_1a1ec9f15e4ffa606a13346bc697112a3f`

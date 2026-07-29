@@ -1,0 +1,120 @@
+
+.. _file_include_poet_core_dynamic_for.hpp:
+
+File dynamic_for.hpp
+====================
+
+|exhale_lsh| :ref:`Parent directory <dir_include_poet_core>` (``include/poet/core``)
+
+.. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
+
+
+
+Runtime-bounded loops with a compile-time-unrolled body. 
+
+
+
+.. contents:: Contents
+   :local:
+   :backlinks: none
+
+Definition (``include/poet/core/dynamic_for.hpp``)
+--------------------------------------------------
+
+
+
+
+Detailed Description
+--------------------
+
+The range is a runtime value, the body is unrolled at compile time. One ``run_loop`` template covers every public overload; the stride, the callable form, and the extra by-value arguments are all template parameters, so no tag object or dispatch value is ever passed at run time.
+
+
+Execution strategy
+
+
+
+1. **Main loop.** Whole blocks of ``Unroll`` iterations, each block a fold, so loop overhead is one branch per ``Unroll`` iterations and the per-lane chains stay independent.
+
+2. **Tail (binary decomposition).** The remaining ``0..Unroll-1`` iterations are peeled by recursively halving the count, giving O(log2 Unroll) branches each guarding a fully unrolled block, instead of O(Unroll). Technique from Andrei Alexandrescu's CppCon 2025 talk.
+
+3. **Tiny ranges.** When ``count < Unroll`` there is no main loop, so the tail is emitted inline rather than through the outlined helper — the lane constants stay visible to the optimizer.
+
+
+
+
+
+When it helps
+
+``dynamic_for`` pays off for **multi-accumulator** patterns: take the lane form (``func(lane_constant, index)``) and keep one accumulator per lane, breaking the serial dependency that limits a plain loop.
+
+It does not help for plain element-wise work (``out[i] = f(i)``) — a ``for`` loop has less overhead — nor for a serial chain (``acc += work(i)``), where unrolling adds instructions without adding ILP. 
+
+
+
+
+
+Includes
+--------
+
+
+- ``cstddef``
+
+- ``limits``
+
+- ``poet/core/for_utils.hpp`` (:ref:`file_include_poet_core_for_utils.hpp`)
+
+
+- ``ranges``
+
+- ``tuple``
+
+- ``type_traits``
+
+- ``utility``
+
+
+
+Included By
+-----------
+
+
+- :ref:`file_include_poet_poet.hpp`
+
+
+
+
+Namespaces
+----------
+
+
+- :ref:`namespace_poet`
+
+
+Classes
+-------
+
+
+- :ref:`exhale_struct_structpoet_1_1dynamic__for__adaptor`
+
+
+Functions
+---------
+
+
+- :ref:`exhale_function_dynamic__for_8hpp_1a2c4fc4de499072f1af65cd9de2ce7aac`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1aafabe6b4658ce0e8b1ac53508bf4914c`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1ae12044ae7d668014a4056686b11b55e3`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1ae900a5a153ddeee7b9539b7c87c4643c`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1a30e88a84e270547148f63b11a82c49c0`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1a52d6ae56a994d308ee69791a75a72ffb`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1aa2012fff315beae2c9dc17d866c4430b`
+
+- :ref:`exhale_function_dynamic__for_8hpp_1a040af26fef3690a8dcba589c107ea0af`
+

@@ -1,0 +1,99 @@
+
+.. _file_include_poet_core_cpu_info.hpp:
+
+File cpu_info.hpp
+=================
+
+|exhale_lsh| :ref:`Parent directory <dir_include_poet_core>` (``include/poet/core``)
+
+.. |exhale_lsh| unicode:: U+021B0 .. UPWARDS ARROW WITH TIP LEFTWARDS
+
+
+
+Compile-time CPU register, vector-width, and cache-line queries. 
+
+
+
+.. contents:: Contents
+   :local:
+   :backlinks: none
+
+Definition (``include/poet/core/cpu_info.hpp``)
+-----------------------------------------------
+
+
+
+
+Detailed Description
+--------------------
+
+Everything here is resolved from the compiler's target predefines, so the answers describe the machine the code is being *compiled* for, not the one it happens to run on. Build with ``-march=native`` (or an explicit ``-m<isa>``) to get anything above the baseline. 
+
+
+
+
+Includes
+--------
+
+
+- ``cstddef``
+
+
+
+
+Included By
+-----------
+
+
+- :ref:`file_include_poet_poet.hpp`
+
+
+
+
+Namespaces
+----------
+
+
+- :ref:`namespace_poet`
+
+
+Classes
+-------
+
+
+- :ref:`exhale_struct_structpoet_1_1cache__line__info`
+
+- :ref:`exhale_struct_structpoet_1_1register__info`
+
+
+Enums
+-----
+
+
+- :ref:`exhale_enum_cpu__info_8hpp_1a13f162022ee5b308163ebff1db0cf306`
+
+
+Functions
+---------
+
+
+- :ref:`exhale_function_cpu__info_8hpp_1aeb7795523b24a4c7d516edeb36a8ea5a`
+
+- :ref:`exhale_function_cpu__info_8hpp_1ab5871e05f4138916616783e664cfb8d3`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a8aa50b5999342d75db2aae5904a07720`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a053df300f1c07cfa04ca1dfafdc851fe`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a1b4ced72a81daa6c6529d61055eedba0`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a1238544685f5461d8a7f5c5169c30b55`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a23512f83efe3d17d5276d108a1aef838`
+
+- :ref:`exhale_function_cpu__info_8hpp_1a1762a855485f7c23a5953aef5509bf66`
+
+- :ref:`exhale_function_cpu__info_8hpp_1aaa17a98080d98a19df3a24fbc76b6f9a`
+
+- :ref:`exhale_function_cpu__info_8hpp_1aca25501234c2061f0b1165fa80c1a253`
+
