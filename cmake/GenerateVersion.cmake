@@ -6,9 +6,9 @@
 # Usage
 # -----
 # - From the main project: include(cmake/GenerateVersion.cmake) during configure.
-# - Standalone (pre-commit hook): cmake -P cmake/GenerateVersion.cmake
-#   With -DCHECK=ON, exits 1 if the generated file would change — the hook then
-#   re-stages the newly regenerated file.
+# - Standalone: cmake -P cmake/GenerateVersion.cmake — required once for
+#   non-CMake consumers, since include/poet/version.hpp is not tracked in git.
+#   With -DCHECK=ON, exits 1 if the generated file would change.
 #
 # Version composition
 # -------------------
@@ -18,10 +18,8 @@
 # is `-dev.N` where N = `git rev-list --count <last-v-tag>..HEAD` if any
 # `v<BASE>` tag exists, else `git rev-list --count HEAD`.
 #
-# N is derived from committed history only — `git rev-list --count HEAD`
-# ignores the staged index and the working tree, so during pre-commit the
-# count is stable across retries of the same commit (HEAD hasn't moved).
-# The count only advances when a new commit actually lands.
+# N is derived from committed history only, so it advances only when a new
+# commit lands, never from the index or the working tree.
 
 cmake_minimum_required(VERSION 3.20)
 

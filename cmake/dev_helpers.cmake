@@ -160,129 +160,75 @@ option(POET_ENABLE_SANITIZERS "Master switch to enable all sanitizers at once" O
 option(POET_ENABLE_ASAN "Enable AddressSanitizer (memory error detection)" ${POET_ENABLE_SANITIZERS})
 option(POET_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer (undefined behavior detection)" ${POET_ENABLE_SANITIZERS})
 
-# Internal: Check if any sanitizer is enabled
-function(_poet_any_sanitizer_enabled out_var)
-  if(POET_ENABLE_ASAN OR POET_ENABLE_UBSAN)
-    set(${out_var} TRUE PARENT_SCOPE)
-  else()
-    set(${out_var} FALSE PARENT_SCOPE)
-  endif()
-endfunction()
-
-# Internal: Download and configure sanitizers-cmake module (cached to avoid re-downloading)
-# Sets out_var to TRUE if successful, FALSE otherwise
-function(_poet_prepare_sanitizers out_var)
-  # Check if we've already prepared sanitizers (cached in global property)
-  get_property(_prepared GLOBAL PROPERTY _poet_sanitizers_prepared SET)
-  if(_prepared)
-    get_property(_prepared_value GLOBAL PROPERTY _poet_sanitizers_prepared)
-    set(${out_var} ${_prepared_value} PARENT_SCOPE)
-    return()
-  endif()
-
-  set(_status TRUE)
-
-  # Download sanitizers-cmake from GitHub using CPM
-  CPMAddPackage(
-    NAME SanitizersCMake
-    GITHUB_REPOSITORY arsenm/sanitizers-cmake
-    GIT_TAG 0573e2ea8651b9bb3083f193c41eb086497cc80a
-    DOWNLOAD_ONLY YES
-    OPTIONS "CMAKE_POLICY_VERSION_MINIMUM 3.10"
-  )
-
-  if(NOT SanitizersCMake_SOURCE_DIR)
-    set(_status FALSE)
-  endif()
-
-  if(_status)
-    # Add sanitizers-cmake to module path
-    list(APPEND CMAKE_MODULE_PATH "${SanitizersCMake_SOURCE_DIR}/cmake")
-
-    # Configure sanitizers-cmake options based on POET settings
-    set(SANITIZE_ADDRESS ${POET_ENABLE_ASAN} CACHE BOOL
-      "Enable AddressSanitizer for sanitized targets." FORCE)
-    mark_as_advanced(SANITIZE_ADDRESS)
-
-    set(SANITIZE_UNDEFINED ${POET_ENABLE_UBSAN} CACHE BOOL
-      "Enable UndefinedBehaviorSanitizer for sanitized targets." FORCE)
-    mark_as_advanced(SANITIZE_UNDEFINED)
-
-    # Load the sanitizers module
-    find_package(Sanitizers REQUIRED QUIET)
-  endif()
-
-  # Cache the preparation result
-  set_property(GLOBAL PROPERTY _poet_sanitizers_prepared ${_status})
-  set(${out_var} ${_status} PARENT_SCOPE)
-endfunction()
-
-# Enable sanitizers for a target based on POET_ENABLE_ASAN and POET_ENABLE_UBSAN options
-# For interface libraries: manually applies sanitizer flags to compile/link options
-# For regular targets: uses the add_sanitizers() function from sanitizers-cmake
+# Applies sanitizer flags to a target. Flags are set directly rather than via
+# arsenm/sanitizers-cmake: that module's find_package() ran inside a function, so
+# the ASan_*_FLAGS variables it defines died with that scope and add_sanitizers()
+# silently applied nothing -- POET_ENABLE_SANITIZERS=ON built with no -fsanitize
+# at all. Two flag strings do not warrant a downloaded dependency.
+#
+# -fno-sanitize-recover=all matters as much as the sanitizers themselves: without
+# it UBSan prints a diagnostic and carries on, so ctest still reports success.
 function(poet_enable_sanitizers target)
   if(NOT TARGET "${target}")
     message(FATAL_ERROR "poet_enable_sanitizers called with non-existent target '${target}'")
   endif()
 
-  _poet_any_sanitizer_enabled(_poet_any_enabled)
-  if(NOT _poet_any_enabled)
+  set(_sanitizers)
+  if(POET_ENABLE_ASAN)
+    list(APPEND _sanitizers address)
+  endif()
+  if(POET_ENABLE_UBSAN)
+    list(APPEND _sanitizers undefined)
+  endif()
+  if(NOT _sanitizers)
     return()
   endif()
 
-  _poet_prepare_sanitizers(_poet_sanitizers_ready)
-  if(NOT _poet_sanitizers_ready)
-    return()
+  if(MSVC)
+    # cl.exe only implements AddressSanitizer, and it takes no link flag.
+    if(POET_ENABLE_ASAN)
+      set(_flags /fsanitize=address)
+    else()
+      message(WARNING "POET: MSVC has no UndefinedBehaviorSanitizer; UBSan request ignored")
+      return()
+    endif()
+    set(_link_flags)
+  else()
+    string(JOIN "," _list ${_sanitizers})
+    set(_flags -fsanitize=${_list} -fno-omit-frame-pointer -fno-sanitize-recover=all)
+    set(_link_flags -fsanitize=${_list})
   endif()
 
   get_target_property(_target_type "${target}" TYPE)
-
   if(_target_type STREQUAL "INTERFACE_LIBRARY")
-    # Special handling for interface libraries (like header-only libraries)
-    # add_sanitizers() doesn't work with interface libraries, so we manually add flags
-    if(NOT CMAKE_CXX_COMPILER_ID)
-      message(FATAL_ERROR "poet_enable_sanitizers requires a C++ compiler when sanitizers are enabled")
-    endif()
-
-    # Build list of requested sanitizers
-    set(_requested_sanitizers)
-    if(POET_ENABLE_ASAN)
-      list(APPEND _requested_sanitizers ASan)
-    endif()
-    if(POET_ENABLE_UBSAN)
-      list(APPEND _requested_sanitizers UBSan)
-    endif()
-
-    # For each sanitizer, retrieve compiler-specific flags and apply them
-    foreach(_sanitizer IN LISTS _requested_sanitizers)
-      # Flag variable names come from sanitizers-cmake (e.g., ASan_GNU_FLAGS, UBSan_Clang_FLAGS)
-      set(_flag_var "${_sanitizer}_${CMAKE_CXX_COMPILER_ID}_FLAGS")
-      if(NOT DEFINED ${_flag_var} OR "${${_flag_var}}" STREQUAL "")
-        message(FATAL_ERROR
-          "${_sanitizer} is not supported for compiler '${CMAKE_CXX_COMPILER_ID}' in the current toolchain")
-      endif()
-
-      # Convert flag string to list and apply to both compile and link options
-      separate_arguments(_sanitizer_flag_list UNIX_COMMAND "${${_flag_var}}")
-      if(_sanitizer_flag_list)
-        target_compile_options(${target} INTERFACE ${_sanitizer_flag_list})
-        target_link_options(${target} INTERFACE ${_sanitizer_flag_list})
-      endif()
-    endforeach()
+    set(_scope INTERFACE)
   else()
-    # For regular targets (non-interface), use sanitizers-cmake's add_sanitizers() function
-    add_sanitizers(${target})
+    set(_scope PRIVATE)
   endif()
+
+  target_compile_options(${target} ${_scope} ${_flags})
+  if(_link_flags)
+    target_link_options(${target} ${_scope} ${_link_flags})
+  endif()
+
+  # Record what was really applied, so poet_print_summary() reports effective
+  # state rather than the requested options.
+  set_property(GLOBAL PROPERTY POET_APPLIED_SANITIZERS "${_flags}")
+  set_property(GLOBAL APPEND PROPERTY POET_SANITIZED_TARGETS "${target}")
 endfunction()
 
 # -------------------------
 # Static analysis helper (from PoetStaticAnalysis.cmake)
 # -------------------------
 option(POET_ENABLE_CLANG_TIDY "Enable clang-tidy static analysis" ON)
-option(POET_CLANG_TIDY_CHECKS "Override default clang-tidy checks (leave empty for default checks)" "")
+# STRING, not option(): option() defaults are booleans, so a string default
+# collapses to OFF and the value is silently lost.
+set(POET_CLANG_TIDY_CHECKS "" CACHE STRING
+  "Override default clang-tidy checks (leave empty to use the .clang-tidy config)")
 option(POET_CLANG_TIDY_WARNINGS_AS_ERRORS "Treat clang-tidy warnings as errors" ON)
 option(POET_ENABLE_CPPCHECK "Enable cppcheck static analysis" ON)
-option(POET_CPPCHECK_OPTIONS "Additional cppcheck options" "--enable=warning,style,performance,portability")
+set(POET_CPPCHECK_OPTIONS "--enable=warning,style,performance,portability" CACHE STRING
+  "Additional cppcheck options")
 
 # Configure static analysis tools (clang-tidy and/or cppcheck) for a target
 # Tools are only enabled if found on PATH, otherwise a warning is issued
@@ -308,8 +254,10 @@ function(poet_configure_static_analysis target)
         set(_clang_tidy_command "${_clang_tidy_command};-warnings-as-errors=*")
       endif()
       set_property(TARGET ${target} PROPERTY CXX_CLANG_TIDY "${_clang_tidy_command}")
+      set_property(GLOBAL PROPERTY POET_CLANG_TIDY_RESOLVED "${_clang_tidy_exe}")
     else()
       message(WARNING "POET_ENABLE_CLANG_TIDY is ON but clang-tidy was not found on PATH")
+      set_property(GLOBAL PROPERTY POET_CLANG_TIDY_RESOLVED "NOT FOUND")
     endif()
   endif()
 
@@ -318,8 +266,10 @@ function(poet_configure_static_analysis target)
     if(_cppcheck_exe)
       set(_cppcheck_command "${_cppcheck_exe};--inline-suppr;${POET_CPPCHECK_OPTIONS}")
       set_property(TARGET ${target} PROPERTY CXX_CPPCHECK "${_cppcheck_command}")
+      set_property(GLOBAL PROPERTY POET_CPPCHECK_RESOLVED "${_cppcheck_exe}")
     else()
       message(WARNING "POET_ENABLE_CPPCHECK is ON but cppcheck was not found on PATH")
+      set_property(GLOBAL PROPERTY POET_CPPCHECK_RESOLVED "NOT FOUND")
     endif()
   endif()
 endfunction()
@@ -437,3 +387,54 @@ if(TARGET coverage)
     add_dependencies(coverage poet_tests)
   endif()
 endif()
+
+# -------------------------
+# Configuration summary
+# -------------------------
+# Reports EFFECTIVE state, not requested options. A tool that was asked for but
+# silently did nothing (missing binary, unsupported compiler, a helper that
+# returned early) is the failure mode this exists to make visible -- otherwise
+# the only way to tell is to grep compile_commands.json.
+function(poet_print_summary)
+  get_property(_san GLOBAL PROPERTY POET_APPLIED_SANITIZERS)
+  get_property(_san_targets GLOBAL PROPERTY POET_SANITIZED_TARGETS)
+  get_property(_tidy GLOBAL PROPERTY POET_CLANG_TIDY_RESOLVED)
+  get_property(_cppcheck GLOBAL PROPERTY POET_CPPCHECK_RESOLVED)
+
+  message(STATUS "")
+  message(STATUS "── POET ${POET_VERSION_FULL} ──────────────────────────────")
+  message(STATUS "  compiler        : ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+  message(STATUS "  build type      : ${CMAKE_BUILD_TYPE}")
+  message(STATUS "  tests/examples/benchmarks : ${POET_BUILD_TESTS}/${POET_BUILD_EXAMPLES}/${POET_BUILD_BENCHMARKS}")
+  message(STATUS "  strict warnings : ${POET_STRICT_WARNINGS}")
+
+  if(_san)
+    list(LENGTH _san_targets _n)
+    message(STATUS "  sanitizers      : ACTIVE on ${_n} target(s) -- ${_san}")
+  elseif(POET_ENABLE_ASAN OR POET_ENABLE_UBSAN)
+    message(WARNING "POET: sanitizers requested but no flags were applied to any target")
+  else()
+    message(STATUS "  sanitizers      : off")
+  endif()
+
+  foreach(_tool tidy cppcheck)
+    if(_tool STREQUAL tidy)
+      set(_want ${POET_ENABLE_CLANG_TIDY})
+      set(_got "${_tidy}")
+      set(_label "clang-tidy      ")
+    else()
+      set(_want ${POET_ENABLE_CPPCHECK})
+      set(_got "${_cppcheck}")
+      set(_label "cppcheck        ")
+    endif()
+    if(NOT _want)
+      message(STATUS "  ${_label}: off")
+    elseif(_got STREQUAL "NOT FOUND" OR _got STREQUAL "")
+      message(STATUS "  ${_label}: REQUESTED BUT INACTIVE")
+    else()
+      message(STATUS "  ${_label}: ${_got}")
+    endif()
+  endforeach()
+  message(STATUS "─────────────────────────────────────────────────────────")
+  message(STATUS "")
+endfunction()

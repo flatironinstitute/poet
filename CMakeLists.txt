@@ -95,3 +95,7 @@ set(CPACK_PACKAGE_CONTACT "support@example.com")
 set(CPACK_GENERATOR "TGZ")
 
 include(CPack)
+
+if(COMMAND poet_print_summary)
+  poet_print_summary()
+endif()
