@@ -300,9 +300,9 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 // NOLINTBEGIN(cppcoreguidelines-macro-usage,cppcoreguidelines-macro-to-enum,modernize-macro-to-enum)
 #define POET_VERSION_MAJOR 0
 #define POET_VERSION_MINOR 0
-#define POET_VERSION_PATCH 1
-#define POET_VERSION_STRING "0.0.1"
-#define POET_VERSION_FULL "0.0.1-dev.2"
+#define POET_VERSION_PATCH 2
+#define POET_VERSION_STRING "0.0.2"
+#define POET_VERSION_FULL "0.0.2-dev.107"
 // NOLINTEND(cppcoreguidelines-macro-usage,cppcoreguidelines-macro-to-enum,modernize-macro-to-enum)
 
 namespace poet {
