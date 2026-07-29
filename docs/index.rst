@@ -6,12 +6,11 @@ POET is a header-only C++ library for compile-time unrolling and runtime-to-comp
 Project links
 -------------
 
-- `GitHub repository <https://github.com/DiamonDinoia/poet>`_
-- `Issue tracker <https://github.com/DiamonDinoia/poet/issues>`_
-- `Releases <https://github.com/DiamonDinoia/poet/releases>`_
-- `License (MIT) <https://github.com/DiamonDinoia/poet/blob/main/LICENSE>`_
-- `CodSpeed dashboard <https://codspeed.io/DiamonDinoia/poet>`_
-- `Single-header build <https://github.com/DiamonDinoia/poet/tree/single-header>`_
+- `GitHub repository <https://github.com/flatironinstitute/poet>`_
+- `Issue tracker <https://github.com/flatironinstitute/poet/issues>`_
+- `Releases <https://github.com/flatironinstitute/poet/releases>`_
+- `License (MIT) <https://github.com/flatironinstitute/poet/blob/main/LICENSE>`_
+- `Single-header build <https://github.com/flatironinstitute/poet/tree/single-header>`_
 
 Core primitives
 ---------------
@@ -28,22 +27,22 @@ Quick start
 
    **Try it online.** Each example has a one-click Compiler Explorer link
    that pulls the
-   `single-header build <https://github.com/DiamonDinoia/poet/tree/single-header>`_
+   `single-header build <https://github.com/flatironinstitute/poet/tree/single-header>`_
    from GitHub at compile time via Compiler Explorer's URL-include feature.
 
-   - |ce-badge| `static_for <https://diamondinoia.github.io/poet/static_for.html>`_
-   - |ce-badge| `dynamic_for <https://diamondinoia.github.io/poet/dynamic_for.html>`_
-   - |ce-badge| `dispatch <https://diamondinoia.github.io/poet/dispatch.html>`_
-   - |ce-badge| `dispatch_set <https://diamondinoia.github.io/poet/dispatch_set.html>`_
-   - |ce-badge| `cpu_info <https://diamondinoia.github.io/poet/cpu_info.html>`_
-   - |ce-badge| `polynomial — Horner via dispatch + static_for <https://diamondinoia.github.io/poet/polynomial.html>`_
-   - |ce-badge| `dot_product — lane-aware ILP <https://diamondinoia.github.io/poet/dot_product.html>`_
-   - |ce-run-badge| `benchmark — Google Benchmark microbench, runs on CE <https://diamondinoia.github.io/poet/benchmark.html>`_
+   - |ce-badge| `static_for <https://flatironinstitute.github.io/poet/static_for.html>`_
+   - |ce-badge| `dynamic_for <https://flatironinstitute.github.io/poet/dynamic_for.html>`_
+   - |ce-badge| `dispatch <https://flatironinstitute.github.io/poet/dispatch.html>`_
+   - |ce-badge| `dispatch_set <https://flatironinstitute.github.io/poet/dispatch_set.html>`_
+   - |ce-badge| `cpu_info <https://flatironinstitute.github.io/poet/cpu_info.html>`_
+   - |ce-badge| `polynomial — Horner via dispatch + static_for <https://flatironinstitute.github.io/poet/polynomial.html>`_
+   - |ce-badge| `dot_product — lane-aware ILP <https://flatironinstitute.github.io/poet/dot_product.html>`_
+   - |ce-run-badge| `benchmark — Google Benchmark microbench, runs on CE <https://flatironinstitute.github.io/poet/benchmark.html>`_
 
    Source for each example lives in
-   `examples/ <https://github.com/DiamonDinoia/poet/tree/main/examples>`_;
+   `examples/ <https://github.com/flatironinstitute/poet/tree/main/examples>`_;
    regenerate the links with
-   `tools/make_godbolt_links.py <https://github.com/DiamonDinoia/poet/blob/main/tools/make_godbolt_links.py>`_.
+   `tools/make_godbolt_links.py <https://github.com/flatironinstitute/poet/blob/main/tools/make_godbolt_links.py>`_.
 
 .. |ce-badge| image:: https://img.shields.io/badge/Compiler%20Explorer-open-67c52a?logo=compilerexplorer&logoColor=white
    :alt: Try on Compiler Explorer

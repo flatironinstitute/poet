@@ -43,7 +43,7 @@ DOC_FILES = [
 ]
 
 DEFAULT_HEADER_URL = (
-    "https://raw.githubusercontent.com/DiamonDinoia/poet/single-header/poet.hpp"
+    "https://raw.githubusercontent.com/flatironinstitute/poet/single-header/poet.hpp"
 )
 
 COMPILERS = {

@@ -60,7 +60,7 @@ html_theme_options = {
 # RTD theme reads these to render the "Edit on GitHub" link on every page.
 html_context = {
     "display_github": True,
-    "github_user": "DiamonDinoia",
+    "github_user": "flatironinstitute",
     "github_repo": "poet",
     "github_version": "main",
     "conf_py_path": "/docs/",

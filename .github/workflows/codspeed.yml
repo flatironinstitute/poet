@@ -1,9 +1,11 @@
 name: CodSpeed
 
+# Disabled: the CodSpeed project is registered against the old DiamonDinoia/poet
+# repository, so uploads from flatironinstitute/poet fail with
+#   401 Unauthorized -- Repository not found or the user does not have access
+# The benchmarks themselves run fine; only the upload is rejected. Re-register
+# the project under the new owner, then restore the push/pull_request triggers.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:

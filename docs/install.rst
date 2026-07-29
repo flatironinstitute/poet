@@ -38,7 +38,7 @@ FetchContent
    include(FetchContent)
    FetchContent_Declare(
      poet
-     GIT_REPOSITORY https://github.com/DiamonDinoia/poet.git
+     GIT_REPOSITORY https://github.com/flatironinstitute/poet.git
      GIT_TAG main
    )
    FetchContent_MakeAvailable(poet)

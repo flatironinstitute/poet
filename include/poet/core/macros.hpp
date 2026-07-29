@@ -203,8 +203,10 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #ifndef POET_DISABLE_PUSH_OPTIMIZE
 #if defined(__GNUC__) && !defined(__clang__)
 #if POET_HIGH_OPTIMIZATION
-// -fno-semantic-interposition: GCC otherwise assumes exported symbols may be
-//   LD_PRELOAD-interposed, which blocks IPO even within one TU.
+// -fno-semantic-interposition is deliberately absent: gcc 13.2/13.3 reject it as
+//   a `pragma optimize` option outright (-Werror=pragmas), and where it is
+//   accepted it is a whole-TU/IPA switch with no per-function meaning -- so it
+//   never did anything here. Pass it on the command line if you want it.
 // -fvect-cost-model=cheap: vectorize when the cost model is merely uncertain,
 //   which is what SLP needs to pack static_for's independent accumulators.
 // Vector width: GCC 13/14 sometimes drop to 128-bit even with AVX2 enabled;
@@ -216,7 +218,7 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #define POET_PUSH_OPTIMIZE_BASE_                                                                              \
     _Pragma("GCC push_options") _Pragma("GCC optimize(\"-fira-hoist-pressure\")")                             \
       _Pragma("GCC optimize(\"-fno-ira-share-spill-slots\")") _Pragma("GCC optimize(\"-frename-registers\")") \
-        _Pragma("GCC optimize(\"-fno-semantic-interposition\")") _Pragma("GCC optimize(\"-fvect-cost-model=cheap\")")
+        _Pragma("GCC optimize(\"-fvect-cost-model=cheap\")")
 
 // -- Internal: target pragma for widest available vector width
 #if defined(__AVX512F__)

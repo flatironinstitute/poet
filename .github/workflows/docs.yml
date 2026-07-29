@@ -1,11 +1,17 @@
 name: Docs
 
-# Builds the Doxygen + Sphinx documentation and publishes it to GitHub Pages.
-# This is the SOLE GitHub Pages deployer: the site is served via the
-# "GitHub Actions" Pages source (not a branch). The Compiler Explorer redirect
-# pages, maintained on the `godbolt-links` branch by godbolt-links.yml, are
-# copied into the site root so existing /poet/<example>.html links keep working;
-# the Sphinx docs are published under /poet/docs/.
+# Builds the Doxygen + Sphinx documentation and publishes it to the branch that
+# GitHub Pages serves (`godbolt-links`, legacy branch source -- no Pages setting
+# change required).
+#
+# Two workflows write that branch, and both force-push an orphan, so each must
+# carry the other's content forward:
+#   - this workflow re-fetches the Compiler Explorer redirect pages into the root
+#   - godbolt-links.yml re-fetches the `docs/` subtree
+# They share the `pages-branch` concurrency group so the two force-pushes cannot
+# interleave.
+#
+# Resulting layout: /poet/<example>.html (redirects), /poet/docs/ (Sphinx).
 
 on:
   push:
@@ -24,13 +30,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# Allow only one concurrent deployment; never cancel an in-progress publish.
+# Shared with godbolt-links.yml: both force-push the Pages branch.
 concurrency:
-  group: pages
+  group: pages-branch
   cancel-in-progress: false
 
 jobs:
@@ -74,21 +78,29 @@ jobs:
           cp -r build/docs/_build/html/. _site/docs/
           # Stop Pages from running Jekyll over Sphinx's _static directory.
           touch _site/.nojekyll
-          # Preserve the custom-domain binding across deployments.
-          echo 'diamondinoia.com' > _site/CNAME
+          # No CNAME: the site is served from <owner>.github.io/<repo>. Adding a
+          # custom domain needs both a Pages setting and DNS -- a CNAME file on
+          # its own does nothing.
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
+      - name: Publish to the Pages branch (orphan, force-pushed)
+        env:
+          PAGES_BRANCH: godbolt-links
+        run: |
+          set -euo pipefail
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-22.04
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          WORK=$(mktemp -d)
+          git worktree add --orphan -B "$PAGES_BRANCH" "$WORK"
+          # An orphan worktree can inherit working-tree state; start empty.
+          find "$WORK" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp -r _site/. "$WORK/"
+
+          cd "$WORK"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Site unchanged; nothing to publish."
+            exit 0
+          fi
+          git commit -m 'docs: rebuild documentation site'
+          git push --force origin "$PAGES_BRANCH"
