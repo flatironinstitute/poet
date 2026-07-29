@@ -21,6 +21,8 @@ EXCLUDE_SYMBOLS        = detail poet::detail poet::detail::* *::detail::* *_deta
 ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = YES
 EXPAND_ONLY_PREDEF     = YES
+# POET_CPLUSPLUS must be high enough for the C++20 blocks (the dynamic_for range
+# adaptor) to survive preprocessing, or they vanish from the reference.
 PREDEFINED             = POET_FORCEINLINE= \
                          POET_ALWAYS_INLINE_LAMBDA= \
                          POET_NOINLINE_FLATTEN= \
@@ -28,9 +30,7 @@ PREDEFINED             = POET_FORCEINLINE= \
                          POET_CPP20_CONSTEVAL=constexpr \
                          POET_LIKELY(x)=x \
                          POET_UNLIKELY(x)=x \
-                         POET_ASSUME(x)= \
-                         POET_ASSUME_NOT_NULL(x)= \
-                         DOXYGEN_SHOULD_SKIP_THIS= \
+                         POET_CPLUSPLUS=202002L \
                          POET_PUSH_OPTIMIZE= \
                          POET_POP_OPTIMIZE=
 GENERATE_XML           = YES

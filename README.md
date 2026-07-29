@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-17%2B-lightblue)](https://en.cppreference.com/w/cpp/17)
 [![Coverage](https://codecov.io/gh/DiamonDinoia/poet/branch/main/graph/badge.svg)](https://codecov.io/gh/DiamonDinoia/poet)
-[![Docs Status](https://readthedocs.org/projects/poet/badge/?version=latest)](https://poet.readthedocs.io/en/latest/)
+[![Docs](https://github.com/DiamonDinoia/poet/actions/workflows/docs.yml/badge.svg)](https://diamondinoia.github.io/poet/docs/)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json&repository=DiamonDinoia/poet)](https://codspeed.io/DiamonDinoia/poet)
 [![Try on Compiler Explorer](https://img.shields.io/badge/Compiler%20Explorer-try%20it-67c52a?logo=compilerexplorer&logoColor=white)](https://diamondinoia.github.io/poet/static_for.html)
 
@@ -105,12 +105,22 @@ poet::dispatch(Kernel{}, params, data);
 
 [![Source: dispatch.cpp][src-badge-dispatch]](examples/dispatch.cpp) [![Try on Compiler Explorer][ce-badge]][ce-dispatch]
 
-For sparse allowed combinations, use `dispatch_set`. Pair with
-`poet::throw_on_no_match` when a miss should fail:
+A miss is silent: the non-throwing overloads return a default-constructed result
+without calling the functor. Prefix with `poet::throw_on_no_match` to get a
+`poet::no_match_error` instead.
+
+For sparse allowed combinations, use `dispatch_set`. Unlike `dispatch_param`,
+this path only calls the template form `f.template operator()<Vs...>(args...)`:
 
 ```cpp
+struct MatMul {
+    template<int Rows, int Cols>
+    void operator()(const float *a, const float *b, float *c) const;
+};
+
 using Shapes = poet::dispatch_set<int,
     poet::tuple_<2, 2>, poet::tuple_<4, 4>, poet::tuple_<2, 4>>;
+
 poet::dispatch(MatMul{}, Shapes{rows, cols}, a, b, c);
 
 poet::dispatch(
@@ -213,7 +223,12 @@ FetchContent_MakeAvailable(poet)
 target_link_libraries(my_app PRIVATE poet::poet)
 ```
 
-For non-CMake builds, add `include/` to your compiler include path.
+For non-CMake builds, generate the version header once, then add `include/` to
+your compiler include path:
+
+```bash
+cmake -P cmake/GenerateVersion.cmake
+```
 
 ## Benchmarks
 
@@ -254,6 +269,6 @@ and regression tracking.
 
 ## Docs
 
-- Guides and API docs: [poet.readthedocs.io](https://poet.readthedocs.io/en/latest/)
+- Guides and API docs: [diamondinoia.github.io/poet/docs](https://diamondinoia.github.io/poet/docs/)
 - Install guide: [docs/install.rst](docs/install.rst)
 - API entry point: [include/poet/poet.hpp](include/poet/poet.hpp)

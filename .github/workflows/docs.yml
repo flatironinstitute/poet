@@ -1,0 +1,94 @@
+name: Docs
+
+# Builds the Doxygen + Sphinx documentation and publishes it to GitHub Pages.
+# This is the SOLE GitHub Pages deployer: the site is served via the
+# "GitHub Actions" Pages source (not a branch). The Compiler Explorer redirect
+# pages, maintained on the `godbolt-links` branch by godbolt-links.yml, are
+# copied into the site root so existing /poet/<example>.html links keep working;
+# the Sphinx docs are published under /poet/docs/.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'include/**'
+      - 'docs/**'
+      - 'cmake/dev_helpers.cmake'
+      - 'CMakeLists.txt'
+      - '.github/workflows/docs.yml'
+  # Re-publish when the Compiler Explorer shortlinks refresh, so the redirect
+  # pages copied into the site root stay current.
+  workflow_run:
+    workflows: [ "Godbolt Links" ]
+    types: [ completed ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment; never cancel an in-progress publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install documentation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+          python -m pip install --upgrade pip
+          pip install -r docs/requirements.txt
+
+      - name: Build docs (Doxygen + Sphinx)
+        run: |
+          cmake -S . -B build -DPOET_GENERATE_DOCS=ON
+          cmake --build build --target docs -- -j 2
+
+      - name: Assemble site (CE redirects at root, Sphinx docs under /docs)
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          # Pull the Compiler Explorer redirect pages from the godbolt-links
+          # branch (maintained by the Godbolt Links workflow) into the root.
+          if git ls-remote --exit-code origin godbolt-links >/dev/null 2>&1; then
+            git fetch --depth 1 origin godbolt-links
+            git archive origin/godbolt-links | tar -x -C _site
+          else
+            echo "godbolt-links branch not found; publishing docs only."
+          fi
+          # Sphinx HTML lives under /docs.
+          mkdir -p _site/docs
+          cp -r build/docs/_build/html/. _site/docs/
+          # Stop Pages from running Jekyll over Sphinx's _static directory.
+          touch _site/.nojekyll
+          # Preserve the custom-domain binding across deployments.
+          echo 'diamondinoia.com' > _site/CNAME
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
