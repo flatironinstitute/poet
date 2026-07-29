@@ -16,7 +16,8 @@
 # --exact-match --tags HEAD` (stripped of a leading `v`). If TAG == BASE we are
 # on an exact release commit and POET_VERSION_FULL = BASE. Otherwise the suffix
 # is `-dev.N` where N = `git rev-list --count <last-v-tag>..HEAD` if any
-# `v<BASE>` tag exists, else `git rev-list --count HEAD`.
+# `v<BASE>` tag exists, else `git rev-list --count HEAD`. With no git available
+# (release tarball, vendored copy) POET_VERSION_FULL = BASE.
 #
 # N is derived from committed history only, so it advances only when a new
 # commit lands, never from the index or the working tree.
@@ -43,7 +44,13 @@ find_package(Git QUIET)
 set(_on_exact_tag FALSE)
 set(_commit_count 0)
 
+# No git to consult (release tarball, vendored copy): the VERSION file is the
+# only authority, so report it as-is. Guessing `-dev.0` would label a pristine
+# release archive as a prerelease, which semver sorts below the release itself.
+set(_have_git_info FALSE)
+
 if(Git_FOUND AND EXISTS "${_poet_src}/.git")
+  set(_have_git_info TRUE)
   execute_process(
     COMMAND "${GIT_EXECUTABLE}" -C "${_poet_src}" describe --exact-match --tags HEAD
     OUTPUT_VARIABLE _exact_tag
@@ -85,7 +92,7 @@ if(Git_FOUND AND EXISTS "${_poet_src}/.git")
 
 endif()
 
-if(_on_exact_tag)
+if(_on_exact_tag OR NOT _have_git_info)
   set(POET_VERSION_FULL "${POET_VERSION_STRING}")
 else()
   set(POET_VERSION_FULL "${POET_VERSION_STRING}-dev.${_commit_count}")
