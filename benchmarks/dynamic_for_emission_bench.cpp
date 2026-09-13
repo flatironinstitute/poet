@@ -192,6 +192,21 @@ int main(int argc, char **argv) {
               });
             return reduce(accs);
         });
+
+        // Same body as RT_stride_2 with an opaque runtime stride of 3: the
+        // non-pow2 stride keeps the iteration-count division on the entry path.
+        constexpr std::size_t effective_iters_3 = (N + 2) / 3;
+        reg("Stride/dynamic_for_RT_stride_3_opaque", effective_iters_3, [salt] {
+            std::size_t stride = 3;
+            benchmark::DoNotOptimize(stride);
+            std::array<double, optimal_accs> accs{};
+            poet::dynamic_for<optimal_accs>(
+              std::size_t{ 0 }, std::size_t{ N }, stride, [&accs, salt](auto lane_c, std::size_t i) {
+                  constexpr auto lane = decltype(lane_c)::value;
+                  accs[lane] += heavy_work(i, salt);
+              });
+            return reduce(accs);
+        });
     }
 
     benchmark::Initialize(&argc, argv);

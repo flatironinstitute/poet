@@ -1,9 +1,5 @@
 // Example: poet::static_for, compile-time unrolled loops.
-//
-// Build:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON
-//   cmake --build build --target example_static_for
-//   ./build/examples/example_static_for
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_static_for
 
 #include <array>
 #include <cstdio>
@@ -24,7 +20,6 @@ int main() {
     });
     std::printf("static_for<0,4> -> %d %d %d %d\n", a[0], a[1], a[2], a[3]);
 
-    // Step.
     long even_sum = 0;
     poet::static_for<0, 10, 2>([&](auto I) {
         even_sum += I;
@@ -32,7 +27,6 @@ int main() {
     });
     std::printf("sum of evens in [0,10) = %ld\n", even_sum);
 
-    // Block size: split a long body into smaller outlined blocks.
     long total = 0;
     poet::static_for<0, 64, 1, 8>([&](auto I) {
         total += I;

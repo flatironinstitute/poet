@@ -1,9 +1,5 @@
 // Example: poet::dispatch_set, sparse allowed combinations + throw_on_no_match.
-//
-// Build:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON
-//   cmake --build build --target example_dispatch_set
-//   ./build/examples/example_dispatch_set
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_dispatch_set
 
 #include <cstdio>
 #include <stdexcept>

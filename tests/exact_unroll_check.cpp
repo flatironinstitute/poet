@@ -3,8 +3,8 @@
 ///
 /// Compiles `exact_unroll_fixture.cpp` to assembly with the build's compiler under
 /// three flag sets and counts the FMAs inside each fixture function, instruction or libm call.
-/// A one-block range must also carry no branch. The unguarded loop `naked` is the
-/// positive control: under `-funroll-loops` it must read more than one FMA.
+/// A one-block range must also carry no branch. The constant-trip-count loop `naked`
+/// is the positive control: under `-funroll-loops` it must read more than one FMA.
 ///
 /// Usage: exact_unroll_check <compiler> <fixture.cpp> <include-dir> <work-dir> [compiler-arg...]
 

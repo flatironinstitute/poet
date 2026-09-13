@@ -1,13 +1,5 @@
-// Example: Google Benchmark microbench, runnable on Compiler Explorer.
-//
-// Scalar dot product vs lane-aware `dynamic_for<L>` for L in {4, 8}.
-// The lane-aware path uses one independent accumulator per lane instead of the
-// scalar loop's serial FMA chain.
-//
-// Build locally:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON -DPOET_BUILD_EXAMPLE_BENCHMARK=ON
-//   cmake --build build --target example_benchmark
-//   ./build/examples/example_benchmark
+// Example: scalar dot product vs lane-aware dynamic_for<L>, L in {4, 8} — Google Benchmark, Compiler Explorer.
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON -DPOET_BUILD_EXAMPLE_BENCHMARK=ON && cmake --build build
 
 #include <array>
 #include <cstddef>

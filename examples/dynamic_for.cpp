@@ -1,9 +1,5 @@
 // Example: poet::dynamic_for, runtime loops emitted as compile-time blocks.
-//
-// Build:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON
-//   cmake --build build --target example_dynamic_for
-//   ./build/examples/example_dynamic_for
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_dynamic_for
 
 #include <array>
 #include <cstddef>
@@ -19,7 +15,6 @@ int main() {
     const std::size_t n = vol_n;
     std::vector<int> out(n);
 
-    // Basic form: unroll factor 4, single-arg callback.
     poet::dynamic_for<4>(std::size_t{ 0 }, n, [&](std::size_t i) { out[i] = static_cast<int>(i * i); });
     std::printf("dynamic_for<4>: out[16] = %d\n", out[16]);
 
@@ -32,7 +27,6 @@ int main() {
     for (double v : acc) total += v;
     std::printf("lane-aware sum [0,%zu) = %.0f\n", n, total);
 
-    // Compile-time step.
     volatile int vol_end = 16;
     int seen = 0;
     poet::dynamic_for<4, 2>(0, vol_end, [&](int) { ++seen; });

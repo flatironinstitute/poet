@@ -1,12 +1,5 @@
-// Example: Horner's polynomial evaluation specialized at runtime.
-//
-// `poet::dispatch` picks a compile-time degree N from a runtime integer, then
-// `poet::static_for` unrolls Horner's recurrence at that fixed N.
-//
-// Build:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON
-//   cmake --build build --target example_polynomial
-//   ./build/examples/example_polynomial
+// Example: Horner's polynomial at a runtime-specialized degree — dispatch picks N, static_for unrolls.
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_polynomial
 
 #include <array>
 #include <cstdio>
@@ -25,7 +18,6 @@ struct Horner {
 };
 
 int main() {
-    // p(x) = 1 + 2x + 3x^2 + 4x^3 + 5x^4 + 6x^5 + 7x^6 + 8x^7 + 9x^8
     constexpr std::array<double, 9> coeffs{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 
     // `volatile` keeps the dispatch path live so the asm pane shows the
@@ -39,7 +31,6 @@ int main() {
 
     std::printf("p(%.1f) at degree %d = %.6f\n", x, degree, y);
 
-    // Sanity: degree-3 evaluation of 1 + 2x + 3x^2 + 4x^3 at x=2.
     v_degree = 3;
     v_x = 2.0;
     double y3 = poet::dispatch(Horner{},

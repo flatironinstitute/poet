@@ -246,6 +246,13 @@ POET_BENCH_NOINLINE auto run_poet_dynamic_for(std::size_t count, std::uint32_t s
     return g_out[count / 2];
 }
 
+template<std::size_t Unroll>
+POET_BENCH_NOINLINE auto run_poet_dynamic_for_u32(std::uint32_t count, std::uint32_t salt) -> std::uint32_t {
+    poet::dynamic_for<Unroll, 1>(
+      std::uint32_t{ 0 }, count, [salt](std::uint32_t i) { g_out[i] = light_work(g_in[i], salt); });
+    return g_out[count / 2];
+}
+
 void register_count(std::size_t count, std::uint32_t salt) {
     const auto suffix = "/N=" + std::to_string(count);
 
@@ -267,13 +274,21 @@ int main(int argc, char **argv) {
     std::cerr << "\n=== dynamic_for Index-Only Benchmark ===\n";
     std::cerr << "Unroll:           " << kUnroll << "\n";
     std::cerr << "Workload:         light index-only step=1 store\n";
-    std::cerr << "Counts:           1024, 1031, 4096, 4101\n\n";
+    std::cerr << "Counts:           1024, 1031, 4096, 4101 + 0, 8, 1033, 1031 (u32 count)\n\n";
 
     const auto salt = next_salt();
     register_count(1024, salt);
     register_count(1031, salt);
     register_count(4096, salt);
     register_count(4101, salt);
+    // Entry-path probes: empty count, lone block (count == kUnroll), and a
+    // hot main loop with a minimal outlined tail (1033 = 8*129 + 1).
+    register_count(0, salt);
+    register_count(8, salt);
+    register_count(1033, salt);
+    reg("IndexOnly/poet_dynamic_for_ct_step1_u32/N=1031", 1031, [salt] {
+        return run_poet_dynamic_for_u32<kUnroll>(std::uint32_t{ 1031 }, salt);
+    });
 
     benchmark::Initialize(&argc, argv);
     benchmark::RunSpecifiedBenchmarks();

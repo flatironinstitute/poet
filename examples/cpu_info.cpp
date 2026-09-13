@@ -1,9 +1,5 @@
 // Example: poet::available_registers and poet::cache_line, compile-time CPU info.
-//
-// Build:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON
-//   cmake --build build --target example_cpu_info
-//   ./build/examples/example_cpu_info
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_cpu_info
 
 #include <cstdio>
 

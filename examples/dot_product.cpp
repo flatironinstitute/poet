@@ -1,13 +1,5 @@
-// Example: lane-aware dot product breaks the serial accumulator dependency.
-//
-// A scalar `for` loop accumulates into one register, so every FMA waits on
-// the previous one. `poet::dynamic_for<L>` with a lane-aware lambda gives the
-// compiler L independent accumulators on parallel dependency chains.
-//
-// Build:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON
-//   cmake --build build --target example_dot_product
-//   ./build/examples/example_dot_product
+// Example: lane-aware dot product breaks the serial FMA chain — dynamic_for<L> gives L independent accumulators.
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_dot_product
 
 #include <array>
 #include <cstddef>

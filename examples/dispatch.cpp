@@ -1,9 +1,5 @@
 // Example: poet::dispatch, runtime-to-compile-time specialization.
-//
-// Build:
-//   cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON
-//   cmake --build build --target example_dispatch
-//   ./build/examples/example_dispatch
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_dispatch
 
 #include <cstdio>
 

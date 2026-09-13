@@ -16,7 +16,15 @@
 
 // --- POET_UNREACHABLE ---
 /// Marks a code path as unreachable. UB if reached at runtime.
-#if defined(__GNUC__) || defined(__clang__)
+/// Prefers std::unreachable when the library probe says it exists (C++23
+/// only on this matrix); gcc and clang expand it to __builtin_unreachable.
+/// <utility> is included at the definition site so the probe does not
+/// depend on transitive includes.
+#include <utility>
+
+#if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+#define POET_UNREACHABLE() std::unreachable()// NOLINT(cppcoreguidelines-macro-usage)
+#elif defined(__GNUC__) || defined(__clang__)
 #define POET_UNREACHABLE() __builtin_unreachable()// NOLINT(cppcoreguidelines-macro-usage)
 #elif defined(_MSC_VER)
 #define POET_UNREACHABLE() __assume(false)// NOLINT(cppcoreguidelines-macro-usage)
@@ -69,6 +77,21 @@
 #else
 #define POET_LIKELY(x) (x)// NOLINT(cppcoreguidelines-macro-usage)
 #define POET_UNLIKELY(x) (x)// NOLINT(cppcoreguidelines-macro-usage)
+#endif
+
+// --- POET_IF_LIKELY / POET_IF_UNLIKELY ---
+/// Statement-position branch hints as `if` headers: `POET_IF_UNLIKELY(c)`
+/// stands for `if (c) [[unlikely]]`. At C++20+ the standard statement
+/// attribute hints the branch; below it the condition carries the expression
+/// builtin. Gated on the language level only: __has_cpp_attribute(likely)
+/// answers 201803L already at C++17 on GCC 13/16 and Clang 23, where Clang
+/// under -Wpedantic -Werror rejects the attribute as a C++20 extension.
+#if POET_CPLUSPLUS >= 202002L
+#define POET_IF_LIKELY(cond) if (cond) [[likely]]// NOLINT(cppcoreguidelines-macro-usage)
+#define POET_IF_UNLIKELY(cond) if (cond) [[unlikely]]// NOLINT(cppcoreguidelines-macro-usage)
+#else
+#define POET_IF_LIKELY(cond) if (POET_LIKELY(cond))// NOLINT(cppcoreguidelines-macro-usage)
+#define POET_IF_UNLIKELY(cond) if (POET_UNLIKELY(cond))// NOLINT(cppcoreguidelines-macro-usage)
 #endif
 
 // --- poet::detail::count_trailing_zeros ---
@@ -183,10 +206,8 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #ifndef POET_DISABLE_PUSH_OPTIMIZE
 #if defined(__GNUC__) && !defined(__clang__)
 #if POET_HIGH_OPTIMIZATION
-// Cheap vector cost model lets SLP pack unrolled accumulators; GCC 13/14 drop
-// to 128-bit under AVX2 without the width pin, and pinning the SVE VL permits
-// unrolling without predication. Width flags are machine flags: `target`, not
-// `optimize`, and scoped to the push/pop.
+// Cheap vector cost model lets SLP pack unrolled accumulators; without the width pin GCC 13/14 drop to 128-bit under
+// AVX2. Width flags are machine flags: `target`, not `optimize`, scoped to the push/pop.
 #define POET_PUSH_OPTIMIZE_BASE_                                                                              \
     _Pragma("GCC push_options") _Pragma("GCC optimize(\"-fira-hoist-pressure\")")                             \
       _Pragma("GCC optimize(\"-fno-ira-share-spill-slots\")") _Pragma("GCC optimize(\"-frename-registers\")") \
@@ -234,6 +255,22 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #define POET_CPP20_CONSTEVAL consteval
 #else
 #define POET_CPP20_CONSTEVAL constexpr
+#endif
+
+// POET_DISPATCH_SET_INLINE_ — GCC 13/16 outline the dispatch_set match chain (constprop/ISRA clones);
+// clang inlines it on its own, so the hint is GCC-only.
+#if defined(__GNUC__) && !defined(__clang__)
+#define POET_DISPATCH_SET_INLINE_ POET_FORCEINLINE// NOLINT(cppcoreguidelines-macro-usage)
+#else
+#define POET_DISPATCH_SET_INLINE_// NOLINT(cppcoreguidelines-macro-usage)
+#endif
+
+// POET_DISPATCH_ENTRY_INLINE_ — GCC 13 alone outlines the variadic entry:
+// annotated, GCC 16 perturbs loop rotation (+1.2..+2.8% measured), clang 23 leaves the 1D thunks outlined.
+#if defined(__GNUC__) && __GNUC__ == 13 && !defined(__clang__)
+#define POET_DISPATCH_ENTRY_INLINE_ POET_FORCEINLINE// NOLINT(cppcoreguidelines-macro-usage)
+#else
+#define POET_DISPATCH_ENTRY_INLINE_// NOLINT(cppcoreguidelines-macro-usage)
 #endif
 
 #endif// POET_CORE_MACROS_HPP

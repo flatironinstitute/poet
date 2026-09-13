@@ -36,9 +36,8 @@ static_assert(validate_register_info<instruction_set::ppc_altivec>());
 static_assert(validate_register_info<instruction_set::ppc_vsx>());
 static_assert(validate_register_info<instruction_set::mips_msa>());
 
-// --- Compile-time: validate against hardware ground truth from /proc/cpuinfo ---
-// CMake populates the POET_HW_* macros from /proc/cpuinfo at configure time;
-// -march=native makes POET detect the full hardware ISA, checked against them here.
+// --- Compile-time: validate against hardware ground truth ---
+// CMake fills POET_HW_* from /proc/cpuinfo; -march=native POET detection is checked against them here.
 
 #ifdef POET_HAS_HW_DETECTION
 
@@ -61,9 +60,7 @@ static_assert(available_registers().lanes_32bit == POET_HW_LANES_32BIT, "POET la
 
 // --- Runtime: Catch2 tests ---
 
-// ============================================================================
-// Explicit-Arch / SVEBits instantiation
-// ============================================================================
+// --- Explicit-Arch / SVEBits instantiation ---
 
 static_assert(vector_register_count<instruction_set::sse2>() == 16);
 static_assert(vector_register_count<instruction_set::avx_512>() == 32);

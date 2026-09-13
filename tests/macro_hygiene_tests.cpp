@@ -14,11 +14,23 @@
 #ifdef POET_CPLUSPLUS
 #error "poet.hpp leaked POET_CPLUSPLUS"
 #endif
+#ifdef POET_IF_LIKELY
+#error "poet.hpp leaked POET_IF_LIKELY"
+#endif
+#ifdef POET_IF_UNLIKELY
+#error "poet.hpp leaked POET_IF_UNLIKELY"
+#endif
 
 #include <poet/core/macros.hpp>
 
 #ifndef POET_FORCEINLINE
 #error "macros.hpp did not restore POET_FORCEINLINE after undef_macros.hpp"
+#endif
+#ifndef POET_IF_LIKELY
+#error "macros.hpp did not restore POET_IF_LIKELY after undef_macros.hpp"
+#endif
+#ifndef POET_IF_UNLIKELY
+#error "macros.hpp did not restore POET_IF_UNLIKELY after undef_macros.hpp"
 #endif
 
 #include <poet/core/undef_macros.hpp>
@@ -34,6 +46,12 @@
 #endif
 #ifdef POET_IS_CONSTANT
 #error "second undef_macros.hpp pass left POET_IS_CONSTANT defined"
+#endif
+#ifdef POET_IF_LIKELY
+#error "second undef_macros.hpp pass left POET_IF_LIKELY defined"
+#endif
+#ifdef POET_IF_UNLIKELY
+#error "second undef_macros.hpp pass left POET_IF_UNLIKELY defined"
 #endif
 
 // The templates and count_trailing_zeros survive the macro cleanup.

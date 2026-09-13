@@ -30,8 +30,9 @@ POET_EXACT_UNROLL_CASE(u2_one, 2, 2)
 POET_EXACT_UNROLL_CASE(u4_one, 4, 4)
 POET_EXACT_UNROLL_CASE(u8_one, 8, 8)
 
-/// Positive control: no pragma, no barrier. `-funroll-loops` must inflate it.
-extern "C" double naked(const double *p, std::size_t n, double acc) {
-    for (std::size_t i = 0; i < n; ++i) { acc = std::fma(acc, p[i], 1.0); }
+/// Positive control: a constant trip count every compiler unrolls under
+/// `-funroll-loops` (apple-clang declines a runtime count there).
+extern "C" double naked(const double *p, double acc) {
+    for (std::size_t i = 0; i < 64; ++i) { acc = std::fma(acc, p[i], 1.0); }
     return acc;
 }

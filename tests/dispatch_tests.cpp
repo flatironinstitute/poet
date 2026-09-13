@@ -121,6 +121,78 @@ struct quad_sum {
     template<int X, int Y, int Z, int W> int operator()(int base) const { return base + X + Y + Z + W; }
 };
 
+// Wide-set functors: the returned value names the specialization that ran, and
+// the counter proves exactly-once dispatch (0 on a miss, 1 per hit).
+struct wide_map {
+    template<int X, int Y> int operator()(int base) const { return base + X * 1000 + Y; }
+};
+
+struct wide_call_counter {
+    int *calls;
+    template<int X, int Y> int operator()(int base) const {
+        ++*calls;
+        return base + X * 1000 + Y;
+    }
+};
+
+struct unsigned_second {
+    template<unsigned X, unsigned Y> unsigned operator()() const { return Y; }
+};
+
+// Sets above dispatch_set_linear_max (16 and 9 below) match through the sorted compare tree; the 8-tuple set stays on
+// the linear fold. Declaration order is scrambled so a mis-sorted or mis-descended tree cannot hit by luck.
+
+using wide16_scrambled_set = dispatch_set<int,// sorted: (-8,4) (-5,50) (-3,30) (0,0) (1,10) (2,20)
+  tuple_<7, 70>,
+  tuple_<-3, 30>,
+  tuple_<0, 0>,
+  tuple_<15, 1>,//   (4,40) (5,55) (6,3) (7,70) (9,99)
+  tuple_<2, 20>,
+  tuple_<11, 9>,
+  tuple_<-8, 4>,
+  tuple_<5, 55>,//   (10,100) (11,9) (12,8) (13,26) (15,1)
+  tuple_<9, 99>,
+  tuple_<1, 10>,
+  tuple_<13, 26>,
+  tuple_<-5, 50>,
+  tuple_<4, 40>,
+  tuple_<12, 8>,
+  tuple_<6, 3>,
+  tuple_<10, 100>>;
+
+using odd9_scrambled_set = dispatch_set<int,// sorted: (-6,60) (-1,9) (0,0) (3,3) (5,55) (7,70) (8,80)
+  tuple_<5, 55>,
+  tuple_<0, 0>,
+  tuple_<8, 80>,
+  tuple_<-1, 9>,//   (9,91) (12,8)
+  tuple_<12, 8>,
+  tuple_<3, 3>,
+  tuple_<7, 70>,
+  tuple_<-6, 60>,
+  tuple_<9, 91>>;
+
+using eight_scrambled_set = dispatch_set<int,// == dispatch_set_linear_max: linear fold, same behavior
+  tuple_<5, 55>,
+  tuple_<0, 0>,
+  tuple_<8, 80>,
+  tuple_<-1, 9>,
+  tuple_<12, 8>,
+  tuple_<3, 3>,
+  tuple_<7, 70>,
+  tuple_<-6, 60>>;
+
+using wide_unsigned_scrambled_set = dispatch_set<unsigned,// sorted: 0 1 3 7 12 25 30 100 then the
+  tuple_<3u, 30u>,
+  tuple_<4000000000u, 9u>,
+  tuple_<0u, 5u>,//   two >= 2^32 first components; a
+  tuple_<12u, 120u>,
+  tuple_<1u, 10u>,
+  tuple_<4000000001u, 11u>,// signed comparator mis-sorts these
+  tuple_<25u, 50u>,
+  tuple_<7u, 7u>,
+  tuple_<100u, 1u>,
+  tuple_<30u, 6u>>;
+
 }// namespace
 
 // --- Basic dispatch tests ---
@@ -842,6 +914,105 @@ TEST_CASE("dispatch_set propagates a stateful functor's mutations", "[static_dis
     REQUIRE(acc.total == 7);
 }
 
+TEST_CASE("dispatch_set with 16 scrambled tuples matches every member exactly once",
+  "[static_dispatch][tuples][wide]") {
+    constexpr std::array<std::array<int, 2>, 16> members{ {
+      { 7, 70 },
+      { -3, 30 },
+      { 0, 0 },
+      { 15, 1 },
+      { 2, 20 },
+      { 11, 9 },
+      { -8, 4 },
+      { 5, 55 },
+      { 9, 99 },
+      { 1, 10 },
+      { 13, 26 },
+      { -5, 50 },
+      { 4, 40 },
+      { 12, 8 },
+      { 6, 3 },
+      { 10, 100 },
+    } };
+
+    int calls = 0;
+    for (const auto &m : members) {
+        const int got = dispatch(wide_call_counter{ &calls }, wide16_scrambled_set(m[0], m[1]), 0);
+        REQUIRE(got == m[0] * 1000 + m[1]);
+    }
+    REQUIRE(calls == 16);
+
+    // Extremes of the sorted key space explicitly: lexicographic min and max.
+    REQUIRE(dispatch(wide_map{}, wide16_scrambled_set(-8, 4), 7) == -7989);
+    REQUIRE(dispatch(wide_map{}, wide16_scrambled_set(15, 1), 7) == 15008);
+}
+
+TEST_CASE("dispatch_set with 16 scrambled tuples misses call nothing", "[static_dispatch][tuples][wide]") {
+    int calls = 0;
+
+    // Below every first component.
+    REQUIRE(dispatch(wide_call_counter{ &calls }, wide16_scrambled_set(-9, 4), 0) == 0);
+    // Above every first component.
+    REQUIRE(dispatch(wide_call_counter{ &calls }, wide16_scrambled_set(16, 70), 0) == 0);
+    // Interior gap: no tuple has first component 3.
+    REQUIRE(dispatch(wide_call_counter{ &calls }, wide16_scrambled_set(3, 30), 0) == 0);
+    // First components hit, second components wrong.
+    REQUIRE(dispatch(wide_call_counter{ &calls }, wide16_scrambled_set(7, 71), 0) == 0);
+    REQUIRE(dispatch(wide_call_counter{ &calls }, wide16_scrambled_set(-8, 5), 0) == 0);
+
+    REQUIRE(calls == 0);
+}
+
+TEST_CASE("dispatch_set with 9 scrambled tuples (odd count)", "[static_dispatch][tuples][wide]") {
+    REQUIRE(dispatch(wide_map{}, odd9_scrambled_set(5, 55), 0) == 5055);
+    REQUIRE(dispatch(wide_map{}, odd9_scrambled_set(-6, 60), 0) == -5940);
+    REQUIRE(dispatch(wide_map{}, odd9_scrambled_set(12, 8), 0) == 12008);
+    REQUIRE(dispatch(wide_map{}, odd9_scrambled_set(9, 91), 0) == 9091);
+
+    REQUIRE(dispatch(wide_map{}, odd9_scrambled_set(4, 4), 0) == 0);
+    REQUIRE(dispatch(wide_map{}, odd9_scrambled_set(5, 56), 0) == 0);
+}
+
+TEST_CASE("dispatch_set with 8 scrambled tuples stays on the linear fold", "[static_dispatch][tuples][wide]") {
+    int calls = 0;
+    REQUIRE(dispatch(wide_call_counter{ &calls }, eight_scrambled_set(5, 55), 0) == 5055);
+    REQUIRE(dispatch(wide_call_counter{ &calls }, eight_scrambled_set(-6, 60), 0) == -5940);
+    REQUIRE(calls == 2);
+
+    REQUIRE(dispatch(wide_call_counter{ &calls }, eight_scrambled_set(8, 8), 0) == 0);
+    REQUIRE(calls == 2);
+}
+
+TEST_CASE("dispatch_set with 16 tuples and throw_on_no_match", "[static_dispatch][tuples][wide][throw]") {
+    REQUIRE(dispatch(throw_on_no_match, wide_map{}, wide16_scrambled_set(13, 26), 0) == 13026);
+    REQUIRE(dispatch(throw_on_no_match, wide_map{}, wide16_scrambled_set(-8, 4), 0) == -7996);
+
+    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, wide_map{}, wide16_scrambled_set(13, 27), 0), std::runtime_error);
+}
+
+TEST_CASE("dispatch_set with 16 tuples supports void return and side-effects", "[static_dispatch][tuples][wide]") {
+    int out = -1;
+    dispatch(tuple_voider{ &out }, wide16_scrambled_set(10, 100), 3);
+    REQUIRE(out == 113);
+
+    out = -1;
+    dispatch(tuple_voider{ &out }, wide16_scrambled_set(10, 101), 3);
+    REQUIRE(out == -1);
+}
+
+TEST_CASE("dispatch_set with unsigned tuples matches across the sign boundary",
+  "[static_dispatch][tuples][wide][unsigned]") {
+    REQUIRE(dispatch(unsigned_second{}, wide_unsigned_scrambled_set(3u, 30u)) == 30u);
+    REQUIRE(dispatch(unsigned_second{}, wide_unsigned_scrambled_set(100u, 1u)) == 1u);
+    // First components >= 2^32 are negative read as signed; a signed compare
+    // would mis-sort the tree and miss these members.
+    REQUIRE(dispatch(unsigned_second{}, wide_unsigned_scrambled_set(4000000000u, 9u)) == 9u);
+    REQUIRE(dispatch(unsigned_second{}, wide_unsigned_scrambled_set(4000000001u, 11u)) == 11u);
+
+    REQUIRE(dispatch(unsigned_second{}, wide_unsigned_scrambled_set(2u, 30u)) == 0u);
+    REQUIRE(dispatch(unsigned_second{}, wide_unsigned_scrambled_set(4000000000u, 10u)) == 0u);
+}
+
 TEST_CASE("dispatch_tuples_impl matches correct tuple", "[static_dispatch][tuples][internal]") {
     using TL = std::tuple<std::integer_sequence<int, 1, 2>, std::integer_sequence<int, 3, 4>>;
     auto rt = std::make_tuple(3, 4);
@@ -1181,9 +1352,8 @@ TEST_CASE("dispatch permuted sequence resolves to the declared slot", "[static_d
 }
 
 TEST_CASE("dispatch carries the sequence's own value type", "[static_dispatch][value_type]") {
-    // The value type must survive from the sequence all the way to the
-    // functor. A hard-coded int anywhere in the table machinery fails to
-    // compile for a non-int sequence.
+    // The value type must survive from the sequence to the functor: a hard-coded
+    // int in the table machinery fails to compile for a non-int sequence.
     using Sizes = std::integer_sequence<std::size_t, 2, 3, 4>;
 
     auto type_of = [](auto V) { return std::is_same_v<typename decltype(V)::value_type, std::size_t>; };

@@ -137,6 +137,34 @@ int main(int argc, char **argv) {
         reg("Unroll/dynamic_for_spill", N, [salt] { return dynamic_for_multi_acc<spill_accs>(N, salt); });
     }
 
+    // --- Capture vs hot-args: identical 8-acc workloads ---
+    // The accumulator array reaches the callable by captured reference (A) or by-value hot-args (B).
+    {
+        constexpr std::size_t N = 10000;
+        constexpr std::size_t wide_accs = 8;
+
+        reg("HotArgs/capture_wide_accs", N, [salt] {
+            std::array<double, wide_accs> accs{};
+            poet::dynamic_for<wide_accs>(N, [&accs, salt](auto lane_c, std::size_t i) {
+                constexpr auto lane = decltype(lane_c)::value;
+                accs[lane] += heavy_work(i, salt);
+            });
+            return reduce(accs);
+        });
+
+        reg("HotArgs/hot_args_wide_accs", N, [salt] {
+            std::array<double, wide_accs> accs{};
+            poet::dynamic_for<wide_accs>(
+              N,
+              [salt](auto lane_c, std::size_t i, double *acc) {
+                  constexpr auto lane = decltype(lane_c)::value;
+                  acc[lane] += heavy_work(i, salt);
+              },
+              accs.data());
+            return reduce(accs);
+        });
+    }
+
     benchmark::Initialize(&argc, argv);
     benchmark::RunSpecifiedBenchmarks();
     benchmark::Shutdown();

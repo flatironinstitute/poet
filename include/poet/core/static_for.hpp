@@ -20,9 +20,8 @@ namespace detail {
       std::size_t FullBlocks,
       std::size_t Remainder>
     POET_FORCEINLINE constexpr void run_blocks(Callable &callable) {
-        // Isolate the blocks only when there is more than one: a lone block has
-        // no sibling to contend with for registers, so outlining it only costs a
-        // call.
+        // Isolate the blocks only when there is more than one: a lone block has no
+        // register sibling to protect, so outlining it only costs a call.
         if constexpr (FullBlocks > 0) {
             emit_blocks<(FullBlocks > 1), Callable, Begin, Step, BlockSize>(
               callable, std::make_index_sequence<FullBlocks>{});
@@ -89,8 +88,6 @@ POET_FORCEINLINE constexpr void static_for(Func &&func) {
     if constexpr (detail::takes_index_v<callable_t, Begin>) {
         detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(callable);
     } else {
-        // `template <auto I> operator()()` form: adapt it to the
-        // integral_constant call the block emitters use.
         using invoker_t = detail::template_invoker<callable_t>;
         invoker_t invoker{ callable };
         detail::run_blocks<invoker_t, Begin, Step, BlockSize, full_blocks, remainder>(invoker);

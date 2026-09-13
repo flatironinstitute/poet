@@ -1,6 +1,5 @@
-// Mixed-ISA link regression: baseline and AVX-512 TUs must observe their own
-// cpu_info answers at runtime. Volatile pointers defeat constant folding --
-// the C++17 ODR merge only showed when the call was not folded.
+// Mixed-ISA link regression: baseline and AVX-512 TUs must observe their own cpu_info answers at runtime.
+// Volatile pointers defeat constant folding; the C++17 ODR merge only showed when the call was not folded.
 
 #include <cstdio>
 

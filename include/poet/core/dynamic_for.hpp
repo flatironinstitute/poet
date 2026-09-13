@@ -35,19 +35,17 @@ namespace detail {
 
     // --- Callable form: resolved once per instantiation, never per iteration ---
 
+    /// \brief True when the callable takes the lane as a leading `integral_constant`.
+    /// Given `is_df_callable_v`, "not this" means the index-only form.
+    template<typename F, typename T, typename... Args>
+    inline constexpr bool wants_lane_v = std::is_invocable_v<F &, std::integral_constant<std::size_t, 0>, T, Args...>;
+
     /// \brief True if F accepts `(index, args...)` or `(lane_constant, index, args...)`.
     ///
     /// Guards the enable_if on every public overload so a non-callable Func
     /// slot is removed from overload resolution.
     template<typename F, typename T, typename... Args>
-    inline constexpr bool is_df_callable_v =
-      std::is_invocable_v<F &, T, Args...>
-      || std::is_invocable_v<F &, std::integral_constant<std::size_t, 0>, T, Args...>;
-
-    /// \brief True when the callable takes the lane as a leading `integral_constant`.
-    /// Given `is_df_callable_v`, "not this" means the index-only form.
-    template<typename F, typename T, typename... Args>
-    inline constexpr bool wants_lane_v = std::is_invocable_v<F &, std::integral_constant<std::size_t, 0>, T, Args...>;
+    inline constexpr bool is_df_callable_v = std::is_invocable_v<F &, T, Args...> || wants_lane_v<F, T, Args...>;
 
     template<bool WantsLane, std::size_t Lane, typename Func, typename T, typename... Args>
     POET_FORCEINLINE constexpr void invoke_lane(Func &func, T index, Args... args) {
@@ -101,25 +99,24 @@ namespace detail {
         // Every public overload asserts `Step != 0`, so only a runtime stride
         // can still be zero here, and dividing by zero below would be UB.
         if constexpr (std::is_integral_v<Stride>) {
-            if (POET_UNLIKELY(stride == 0)) { return 0; }
+            POET_IF_UNLIKELY(stride == 0) { return 0; }
         }
 
-        if (POET_UNLIKELY(is_backward(stride))) {
-            if (POET_UNLIKELY(begin <= end)) { return 0; }
-            // Negate at T's width, where wrapping is defined: this recovers
-            // `2` from both signed `-2` and unsigned `T(-2)`. Written as
-            // `0 - x` because MSVC's C4146 flags the deliberate wrap.
+        POET_IF_UNLIKELY(is_backward(stride)) {
+            POET_IF_UNLIKELY(begin <= end) { return 0; }
+            // Negate at T's width, where wrapping is defined (recovers `2` from signed `-2` and unsigned `T(-2)`);
+            // `0 - x` because MSVC C4146 flags the deliberate wrap.
             const auto negated = static_cast<unsigned_t>(unsigned_t{ 0 } - static_cast<unsigned_t>(stride));
             const auto magnitude = static_cast<std::size_t>(negated);
             return ((static_cast<std::size_t>(begin - end) + magnitude) - 1) / magnitude;
         }
 
-        if (POET_UNLIKELY(begin >= end)) { return 0; }
+        POET_IF_UNLIKELY(begin >= end) { return 0; }
 
         const auto magnitude = static_cast<std::size_t>(stride);
         const std::size_t span = (static_cast<std::size_t>(end - begin) + magnitude) - 1;
-        // A power-of-two stride, including the dominant stride==1 case,
-        // shifts instead of dividing.
+        // Expression builtin kept on this guard: statement-attribute form perturbs GCC's
+        // block layout and register allocation in register-tight lane loops (measured).
         if (POET_LIKELY(is_power_of_two(magnitude))) { return span >> count_trailing_zeros(magnitude); }
         return span / magnitude;
     }
@@ -207,7 +204,7 @@ namespace detail {
     template<std::size_t Unroll, bool WantsLane, typename T, typename Func, typename Stride, typename... Args>
     POET_HOT_LOOP void run_loop(const T begin, const T end, Stride stride, Func &func, Args... args) {
         const std::size_t count = iteration_count(begin, end, stride);
-        if (POET_UNLIKELY(count == 0)) { return; }
+        POET_IF_UNLIKELY(count == 0) { return; }
 
         T index = begin;
 
@@ -218,16 +215,13 @@ namespace detail {
                 invoke_lane<WantsLane, 0>(func, index, args...);
                 index += stride_of<T>(stride);
             }
-        } else if (POET_UNLIKELY(count < Unroll)) {
-            // Tiny range: there is no main loop to run, so inline the tail and
-            // keep the lane constants visible.
-            tail_binary<Unroll, WantsLane>(count, func, index, stride, args...);
-        } else {
+        } else
+            POET_IF_UNLIKELY(count < Unroll) { tail_binary<Unroll, WantsLane>(count, func, index, stride, args...); }
+        else {
             const T block_step = static_cast<T>(Unroll) * stride_of<T>(stride);
             const std::size_t blocks = count / Unroll;
             const std::size_t remaining = count % Unroll;
             if (POET_IS_CONSTANT(blocks) && blocks == 1) {
-                // A constant count of exactly `Unroll`: one block, no loop.
                 emit_block<Unroll, WantsLane>(func, index, stride, args...);
                 index += block_step;
             } else {
