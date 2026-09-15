@@ -326,6 +326,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|IntelLLVM)$"
       "${CMAKE_SOURCE_DIR}/include"
       "${CMAKE_CURRENT_BINARY_DIR}/exact_unroll"
       ${_exact_unroll_sysroot})
+  # The coverage target builds via DEPENDS poet_tests; without this the test
+  # is registered but its executable is never built there.
+  add_dependencies(poet_tests poet_exact_unroll_check)
 endif()
 
 add_executable(poet_header_analysis header_analysis.cpp)
