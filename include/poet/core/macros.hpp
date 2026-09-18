@@ -257,20 +257,4 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #define POET_CPP20_CONSTEVAL constexpr
 #endif
 
-// POET_DISPATCH_SET_INLINE_ — GCC 13/16 outline the dispatch_set match chain (constprop/ISRA clones);
-// clang inlines it on its own, so the hint is GCC-only.
-#if defined(__GNUC__) && !defined(__clang__)
-#define POET_DISPATCH_SET_INLINE_ POET_FORCEINLINE// NOLINT(cppcoreguidelines-macro-usage)
-#else
-#define POET_DISPATCH_SET_INLINE_// NOLINT(cppcoreguidelines-macro-usage)
-#endif
-
-// POET_DISPATCH_ENTRY_INLINE_ — GCC 13 alone outlines the variadic entry:
-// annotated, GCC 16 perturbs loop rotation (+1.2..+2.8% measured), clang 23 leaves the 1D thunks outlined.
-#if defined(__GNUC__) && __GNUC__ == 13 && !defined(__clang__)
-#define POET_DISPATCH_ENTRY_INLINE_ POET_FORCEINLINE// NOLINT(cppcoreguidelines-macro-usage)
-#else
-#define POET_DISPATCH_ENTRY_INLINE_// NOLINT(cppcoreguidelines-macro-usage)
-#endif
-
 #endif// POET_CORE_MACROS_HPP

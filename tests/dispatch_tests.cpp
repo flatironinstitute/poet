@@ -20,7 +20,7 @@ using poet::dispatch_param;
 using poet::dispatch_set;
 using poet::dispatch;
 using poet::inclusive_range;
-using poet::tuple_;
+using poet::values;
 using poet::throw_on_no_match;
 
 static_assert(std::is_same_v<inclusive_range<0, 0>, std::integer_sequence<int, 0>>,
@@ -101,6 +101,14 @@ struct tuple_sum {
     template<int X, int Y> int operator()(int base) const { return base + X + Y; }
 };
 
+// Value form: integral_constant parameters instead of explicit template arguments.
+struct tuple_sum_value_form {
+    template<int X, int Y>
+    int operator()(std::integral_constant<int, X>, std::integral_constant<int, Y>, int base) const {
+        return base + X + Y;
+    }
+};
+
 // Mutates itself, so the caller sees the effect only if dispatch holds the
 // functor by reference rather than copying it.
 struct tuple_accumulator {
@@ -143,55 +151,55 @@ struct unsigned_second {
 // the linear fold. Declaration order is scrambled so a mis-sorted or mis-descended tree cannot hit by luck.
 
 using wide16_scrambled_set = dispatch_set<int,// sorted: (-8,4) (-5,50) (-3,30) (0,0) (1,10) (2,20)
-  tuple_<7, 70>,
-  tuple_<-3, 30>,
-  tuple_<0, 0>,
-  tuple_<15, 1>,//   (4,40) (5,55) (6,3) (7,70) (9,99)
-  tuple_<2, 20>,
-  tuple_<11, 9>,
-  tuple_<-8, 4>,
-  tuple_<5, 55>,//   (10,100) (11,9) (12,8) (13,26) (15,1)
-  tuple_<9, 99>,
-  tuple_<1, 10>,
-  tuple_<13, 26>,
-  tuple_<-5, 50>,
-  tuple_<4, 40>,
-  tuple_<12, 8>,
-  tuple_<6, 3>,
-  tuple_<10, 100>>;
+  values<7, 70>,
+  values<-3, 30>,
+  values<0, 0>,
+  values<15, 1>,//   (4,40) (5,55) (6,3) (7,70) (9,99)
+  values<2, 20>,
+  values<11, 9>,
+  values<-8, 4>,
+  values<5, 55>,//   (10,100) (11,9) (12,8) (13,26) (15,1)
+  values<9, 99>,
+  values<1, 10>,
+  values<13, 26>,
+  values<-5, 50>,
+  values<4, 40>,
+  values<12, 8>,
+  values<6, 3>,
+  values<10, 100>>;
 
 using odd9_scrambled_set = dispatch_set<int,// sorted: (-6,60) (-1,9) (0,0) (3,3) (5,55) (7,70) (8,80)
-  tuple_<5, 55>,
-  tuple_<0, 0>,
-  tuple_<8, 80>,
-  tuple_<-1, 9>,//   (9,91) (12,8)
-  tuple_<12, 8>,
-  tuple_<3, 3>,
-  tuple_<7, 70>,
-  tuple_<-6, 60>,
-  tuple_<9, 91>>;
+  values<5, 55>,
+  values<0, 0>,
+  values<8, 80>,
+  values<-1, 9>,//   (9,91) (12,8)
+  values<12, 8>,
+  values<3, 3>,
+  values<7, 70>,
+  values<-6, 60>,
+  values<9, 91>>;
 
 using eight_scrambled_set = dispatch_set<int,// == dispatch_set_linear_max: linear fold, same behavior
-  tuple_<5, 55>,
-  tuple_<0, 0>,
-  tuple_<8, 80>,
-  tuple_<-1, 9>,
-  tuple_<12, 8>,
-  tuple_<3, 3>,
-  tuple_<7, 70>,
-  tuple_<-6, 60>>;
+  values<5, 55>,
+  values<0, 0>,
+  values<8, 80>,
+  values<-1, 9>,
+  values<12, 8>,
+  values<3, 3>,
+  values<7, 70>,
+  values<-6, 60>>;
 
 using wide_unsigned_scrambled_set = dispatch_set<unsigned,// sorted: 0 1 3 7 12 25 30 100 then the
-  tuple_<3u, 30u>,
-  tuple_<4000000000u, 9u>,
-  tuple_<0u, 5u>,//   two >= 2^32 first components; a
-  tuple_<12u, 120u>,
-  tuple_<1u, 10u>,
-  tuple_<4000000001u, 11u>,// signed comparator mis-sorts these
-  tuple_<25u, 50u>,
-  tuple_<7u, 7u>,
-  tuple_<100u, 1u>,
-  tuple_<30u, 6u>>;
+  values<3u, 30u>,
+  values<4000000000u, 9u>,
+  values<0u, 5u>,//   two >= 2^32 first components; a
+  values<12u, 120u>,
+  values<1u, 10u>,
+  values<4000000001u, 11u>,// signed comparator mis-sorts these
+  values<25u, 50u>,
+  values<7u, 7u>,
+  values<100u, 1u>,
+  values<30u, 6u>>;
 
 }// namespace
 
@@ -498,7 +506,7 @@ TEST_CASE("dispatch throws when no match exists with throw_on_no_match (non-void
     bool invoked = false;
     auto params = std::make_tuple(dispatch_param<inclusive_range<0, 2>>{ 3 });
 
-    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, params, 8), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, params, 8), poet::no_match_error);
 
     REQUIRE_FALSE(invoked);
 }
@@ -508,7 +516,7 @@ TEST_CASE("dispatch throws when no match exists with throw_on_no_match (void)", 
     auto params =
       std::make_tuple(dispatch_param<inclusive_range<1, 2>>{ 3 }, dispatch_param<inclusive_range<3, 4>>{ 4 });
 
-    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, vector_dispatcher{ &values }, params, 0), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, vector_dispatcher{ &values }, params, 0), poet::no_match_error);
 
     REQUIRE(values.empty());
 }
@@ -534,7 +542,7 @@ TEST_CASE("dispatch with throw_on_no_match handles multiple parameters correctly
     auto bad_params1 = std::make_tuple(dispatch_param<inclusive_range<1, 3>>{ 0 },
       dispatch_param<inclusive_range<5, 7>>{ 6 },
       dispatch_param<inclusive_range<10, 12>>{ 11 });
-    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, sum_dispatcher{}, bad_params1, 100), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, sum_dispatcher{}, bad_params1, 100), poet::no_match_error);
 }
 
 TEST_CASE("dispatch with throw_on_no_match handles boundary values", "[static_dispatch][throw]") {
@@ -553,10 +561,12 @@ TEST_CASE("dispatch with throw_on_no_match handles boundary values", "[static_di
     REQUIRE(result2 == 45);
 
     auto params3 = std::make_tuple(dispatch_param<inclusive_range<-10, -5>>{ -11 });
-    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, params3, 50), std::runtime_error);
+    REQUIRE_THROWS_AS(
+      dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, params3, 50), poet::no_match_error);
 
     auto params4 = std::make_tuple(dispatch_param<inclusive_range<-10, -5>>{ -4 });
-    REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, params4, 50), std::runtime_error);
+    REQUIRE_THROWS_AS(
+      dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, params4, 50), poet::no_match_error);
 }
 
 TEST_CASE("dispatch with throw_on_no_match preserves return type deduction", "[static_dispatch][throw]") {
@@ -575,7 +585,7 @@ TEST_CASE("dispatch with throw_on_no_match variadic form", "[static_dispatch][th
         REQUIRE_THROWS_AS(
           dispatch(
             poet::throw_on_no_match, guard_dispatcher{ &invoked }, dispatch_param<inclusive_range<0, 2>>{ 10 }, 5),
-          std::runtime_error);
+          poet::no_match_error);
         REQUIRE_FALSE(invoked);
     }
 
@@ -600,7 +610,8 @@ TEST_CASE("dispatch with throw_on_no_match tuple form", "[static_dispatch][throw
     SECTION("throws on miss") {
         auto bad = std::make_tuple(dispatch_param<inclusive_range<0, 3>>{ 10 });
         bool invoked = false;
-        REQUIRE_THROWS_AS(dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, bad, 5), std::runtime_error);
+        REQUIRE_THROWS_AS(
+          dispatch(poet::throw_on_no_match, guard_dispatcher{ &invoked }, bad, 5), poet::no_match_error);
         REQUIRE_FALSE(invoked);
     }
 }
@@ -763,7 +774,7 @@ TEST_CASE("dispatch with single-element non-contiguous sequence", "[static_dispa
 // --- dispatch_set / tuple tests ---
 
 TEST_CASE("dispatch_set matches exact allowed tuples", "[static_dispatch][tuples]") {
-    using DS = dispatch_set<int, tuple_<1, 2>, tuple_<2, 4>>;
+    using DS = dispatch_set<int, values<1, 2>, values<2, 4>>;
     auto ds = DS(2, 4);
 
     const auto result = dispatch(tuple_sum{}, ds, 10);
@@ -771,7 +782,7 @@ TEST_CASE("dispatch_set matches exact allowed tuples", "[static_dispatch][tuples
 }
 
 TEST_CASE("dispatch_set returns default when no match", "[static_dispatch][tuples]") {
-    using DS = dispatch_set<int, tuple_<1, 2>, tuple_<2, 4>>;
+    using DS = dispatch_set<int, values<1, 2>, values<2, 4>>;
     auto ds = DS(3, 3);
 
     const auto result = dispatch(tuple_sum{}, ds, 5);
@@ -779,7 +790,7 @@ TEST_CASE("dispatch_set returns default when no match", "[static_dispatch][tuple
 }
 
 TEST_CASE("dispatch_set supports void return and side-effects", "[static_dispatch][tuples]") {
-    using DS = dispatch_set<int, tuple_<0, 0>, tuple_<5, 7>>;
+    using DS = dispatch_set<int, values<0, 0>, values<5, 7>>;
     auto ds = DS(5, 7);
     int out = 0;
 
@@ -788,15 +799,15 @@ TEST_CASE("dispatch_set supports void return and side-effects", "[static_dispatc
 }
 
 TEST_CASE("dispatch_set throws when requested and no match", "[static_dispatch][tuples][throw]") {
-    using DS = dispatch_set<int, tuple_<1, 1>>;
+    using DS = dispatch_set<int, values<1, 1>>;
     auto ds = DS(9, 9);
 
     // cppcheck-suppress unknownMacro
-    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, tuple_sum{}, ds, 0), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, tuple_sum{}, ds, 0), poet::no_match_error);
 }
 
 TEST_CASE("dispatch_set with throw_on_no_match succeeds on valid match", "[static_dispatch][tuples][throw]") {
-    using DS = dispatch_set<int, tuple_<1, 2>, tuple_<3, 4>, tuple_<5, 6>>;
+    using DS = dispatch_set<int, values<1, 2>, values<3, 4>, values<5, 6>>;
     auto ds = DS(3, 4);
 
     const auto result = dispatch(throw_on_no_match, tuple_sum{}, ds, 10);
@@ -804,7 +815,7 @@ TEST_CASE("dispatch_set with throw_on_no_match succeeds on valid match", "[stati
 }
 
 TEST_CASE("dispatch_set with throw_on_no_match handles multiple valid tuples", "[static_dispatch][tuples][throw]") {
-    using DS = dispatch_set<int, tuple_<1, 2>, tuple_<3, 4>, tuple_<5, 6>>;
+    using DS = dispatch_set<int, values<1, 2>, values<3, 4>, values<5, 6>>;
 
     auto ds1 = DS(1, 2);
     REQUIRE(dispatch(throw_on_no_match, tuple_sum{}, ds1, 0) == 3);
@@ -816,11 +827,11 @@ TEST_CASE("dispatch_set with throw_on_no_match handles multiple valid tuples", "
     REQUIRE(dispatch(throw_on_no_match, tuple_sum{}, ds3, 0) == 11);
 
     auto ds_invalid = DS(2, 3);
-    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, tuple_sum{}, ds_invalid, 0), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, tuple_sum{}, ds_invalid, 0), poet::no_match_error);
 }
 
 TEST_CASE("dispatch_set with throw_on_no_match handles void return type", "[static_dispatch][tuples][throw]") {
-    using DS = dispatch_set<int, tuple_<1, 2>, tuple_<3, 4>>;
+    using DS = dispatch_set<int, values<1, 2>, values<3, 4>>;
 
     int result = 0;
     auto ds1 = DS(1, 2);
@@ -832,11 +843,11 @@ TEST_CASE("dispatch_set with throw_on_no_match handles void return type", "[stat
     REQUIRE(result == 57);// 50 + 3 + 4
 
     auto ds_invalid = DS(2, 3);
-    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, tuple_voider{ &result }, ds_invalid, 100), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, tuple_voider{ &result }, ds_invalid, 100), poet::no_match_error);
 }
 
 TEST_CASE("dispatch_set with 3-tuples", "[static_dispatch][tuples][arity-3]") {
-    using DS = dispatch_set<int, tuple_<1, 2, 3>, tuple_<4, 5, 6>, tuple_<7, 8, 9>>;
+    using DS = dispatch_set<int, values<1, 2, 3>, values<4, 5, 6>, values<7, 8, 9>>;
 
     auto ds1 = DS(1, 2, 3);
     REQUIRE(dispatch(::triple_sum{}, ds1, 10) == 16);
@@ -852,7 +863,7 @@ TEST_CASE("dispatch_set with 3-tuples", "[static_dispatch][tuples][arity-3]") {
 }
 
 TEST_CASE("dispatch_set with 4-tuples", "[static_dispatch][tuples][arity-4]") {
-    using DS = dispatch_set<int, tuple_<1, 2, 3, 4>, tuple_<5, 6, 7, 8>>;
+    using DS = dispatch_set<int, values<1, 2, 3, 4>, values<5, 6, 7, 8>>;
 
     auto ds1 = DS(1, 2, 3, 4);
     REQUIRE(dispatch(::quad_sum{}, ds1, 100) == 110);
@@ -862,7 +873,7 @@ TEST_CASE("dispatch_set with 4-tuples", "[static_dispatch][tuples][arity-4]") {
 }
 
 TEST_CASE("dispatch_set with negative values", "[static_dispatch][tuples][negative]") {
-    using DS = dispatch_set<int, tuple_<-1, -2>, tuple_<-5, -10>, tuple_<0, 0>>;
+    using DS = dispatch_set<int, values<-1, -2>, values<-5, -10>, values<0, 0>>;
 
     auto ds1 = DS(-1, -2);
     REQUIRE(dispatch(tuple_sum{}, ds1, 10) == 7);
@@ -875,7 +886,7 @@ TEST_CASE("dispatch_set with negative values", "[static_dispatch][tuples][negati
 }
 
 TEST_CASE("dispatch_set with mixed positive and negative values", "[static_dispatch][tuples][mixed]") {
-    using DS = dispatch_set<int, tuple_<-5, 10>, tuple_<3, -7>, tuple_<0, 0>>;
+    using DS = dispatch_set<int, values<-5, 10>, values<3, -7>, values<0, 0>>;
 
     auto ds1 = DS(-5, 10);
     REQUIRE(dispatch(tuple_sum{}, ds1, 100) == 105);
@@ -888,7 +899,7 @@ TEST_CASE("dispatch_set with mixed positive and negative values", "[static_dispa
 }
 
 TEST_CASE("dispatch_set with single allowed tuple", "[static_dispatch][tuples][single]") {
-    using DS = dispatch_set<int, tuple_<42, 84>>;
+    using DS = dispatch_set<int, values<42, 84>>;
 
     auto ds_valid = DS(42, 84);
     REQUIRE(dispatch(tuple_sum{}, ds_valid, 100) == 226);
@@ -898,17 +909,17 @@ TEST_CASE("dispatch_set with single allowed tuple", "[static_dispatch][tuples][s
 }
 
 TEST_CASE("dispatch_set with 3-tuples and throw_on_no_match", "[static_dispatch][tuples][arity-3][throw]") {
-    using DS = dispatch_set<int, tuple_<1, 2, 3>, tuple_<4, 5, 6>>;
+    using DS = dispatch_set<int, values<1, 2, 3>, values<4, 5, 6>>;
 
     auto ds_valid = DS(1, 2, 3);
     REQUIRE(dispatch(throw_on_no_match, ::triple_sum{}, ds_valid, 10) == 16);
 
     auto ds_invalid = DS(1, 2, 4);
-    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, ::triple_sum{}, ds_invalid, 10), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, ::triple_sum{}, ds_invalid, 10), poet::no_match_error);
 }
 
 TEST_CASE("dispatch_set propagates a stateful functor's mutations", "[static_dispatch][tuples][stateful]") {
-    using DS = dispatch_set<int, tuple_<1, 2>, tuple_<3, 4>>;
+    using DS = dispatch_set<int, values<1, 2>, values<3, 4>>;
     ::tuple_accumulator acc{};
     dispatch(acc, DS(3, 4));
     REQUIRE(acc.total == 7);
@@ -983,11 +994,25 @@ TEST_CASE("dispatch_set with 8 scrambled tuples stays on the linear fold", "[sta
     REQUIRE(calls == 2);
 }
 
+TEST_CASE("dispatch_set accepts a value-form functor on both the linear-fold and tree paths",
+  "[static_dispatch][tuples][value-args]") {
+    // eight_scrambled_set: 8 tuples, at dispatch_set_linear_max -> linear fold.
+    REQUIRE(dispatch(tuple_sum_value_form{}, eight_scrambled_set(5, 55), 0) == 60);
+    REQUIRE(dispatch(tuple_sum_value_form{}, eight_scrambled_set(-6, 60), 0) == 54);
+    REQUIRE(dispatch(tuple_sum_value_form{}, eight_scrambled_set(8, 8), 0) == 0);// miss, non-throwing
+
+    // wide16_scrambled_set: 16 tuples, above dispatch_set_linear_max -> sorted compare tree.
+    REQUIRE(dispatch(tuple_sum_value_form{}, wide16_scrambled_set(13, 26), 10) == 49);
+    REQUIRE(dispatch(tuple_sum_value_form{}, wide16_scrambled_set(-8, 4), 10) == 6);
+    REQUIRE_THROWS_AS(
+      dispatch(throw_on_no_match, tuple_sum_value_form{}, wide16_scrambled_set(13, 27), 10), poet::no_match_error);
+}
+
 TEST_CASE("dispatch_set with 16 tuples and throw_on_no_match", "[static_dispatch][tuples][wide][throw]") {
     REQUIRE(dispatch(throw_on_no_match, wide_map{}, wide16_scrambled_set(13, 26), 0) == 13026);
     REQUIRE(dispatch(throw_on_no_match, wide_map{}, wide16_scrambled_set(-8, 4), 0) == -7996);
 
-    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, wide_map{}, wide16_scrambled_set(13, 27), 0), std::runtime_error);
+    REQUIRE_THROWS_AS(dispatch(throw_on_no_match, wide_map{}, wide16_scrambled_set(13, 27), 0), poet::no_match_error);
 }
 
 TEST_CASE("dispatch_set with 16 tuples supports void return and side-effects", "[static_dispatch][tuples][wide]") {
@@ -1033,7 +1058,7 @@ TEST_CASE("dispatch_tuples_impl throws on no match with ThrowOnNoMatch", "[stati
     using TL = std::tuple<std::integer_sequence<int, 1, 2>>;
     auto rt = std::make_tuple(9, 9);
     tuple_sum sum{};
-    REQUIRE_THROWS_AS(poet::detail::dispatch_tuples_impl<true>(sum, TL{}, rt, 5), std::runtime_error);
+    REQUIRE_THROWS_AS(poet::detail::dispatch_tuples_impl<true>(sum, TL{}, rt, 5), poet::no_match_error);
 }
 
 // --- Heavy tests: 1D array dispatch ---

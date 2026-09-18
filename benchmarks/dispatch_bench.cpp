@@ -37,27 +37,27 @@ using range_5d_noncontig = std::integer_sequence<int, 0, 10, 20, 30>;
 using range_1d_strided_magic = std::integer_sequence<int, 5, 10, 15, 20, 25>;
 
 // dispatch_set: sparse allowed (row, col) combinations
-using set_shapes = poet::dispatch_set<int, poet::tuple_<2, 2>, poet::tuple_<4, 4>, poet::tuple_<2, 4>>;
+using set_shapes = poet::dispatch_set<int, poet::values<2, 2>, poet::values<4, 4>, poet::values<2, 4>>;
 
 // Wide dispatch_set: 16 distinct arity-2 tuples (i, 2i); a hit on a late
 // member runs the linear match fold deep.
 using set_wide = poet::dispatch_set<int,
-  poet::tuple_<0, 0>,
-  poet::tuple_<1, 2>,
-  poet::tuple_<2, 4>,
-  poet::tuple_<3, 6>,
-  poet::tuple_<4, 8>,
-  poet::tuple_<5, 10>,
-  poet::tuple_<6, 12>,
-  poet::tuple_<7, 14>,
-  poet::tuple_<8, 16>,
-  poet::tuple_<9, 18>,
-  poet::tuple_<10, 20>,
-  poet::tuple_<11, 22>,
-  poet::tuple_<12, 24>,
-  poet::tuple_<13, 26>,
-  poet::tuple_<14, 28>,
-  poet::tuple_<15, 30>>;
+  poet::values<0, 0>,
+  poet::values<1, 2>,
+  poet::values<2, 4>,
+  poet::values<3, 6>,
+  poet::values<4, 8>,
+  poet::values<5, 10>,
+  poet::values<6, 12>,
+  poet::values<7, 14>,
+  poet::values<8, 16>,
+  poet::values<9, 18>,
+  poet::values<10, 20>,
+  poet::values<11, 22>,
+  poet::values<12, 24>,
+  poet::values<13, 26>,
+  poet::values<14, 28>,
+  poet::values<15, 30>>;
 
 int next_noise() {
     const int v = runtime_noise;

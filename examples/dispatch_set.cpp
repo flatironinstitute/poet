@@ -11,7 +11,7 @@ struct MatMul {
 };
 
 int main() {
-    using Shapes = poet::dispatch_set<int, poet::tuple_<2, 2>, poet::tuple_<4, 4>, poet::tuple_<2, 4>>;
+    using Shapes = poet::dispatch_set<int, poet::values<2, 2>, poet::values<4, 4>, poet::values<2, 4>>;
 
     // Valid combination: hits the (2, 4) specialization.
     // `volatile` keeps the runtime path live in the asm pane.

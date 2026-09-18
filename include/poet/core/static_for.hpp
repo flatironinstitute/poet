@@ -34,20 +34,9 @@ namespace detail {
 
     /// \brief True when `Callable` accepts the loop index as an integral_constant.
     ///
-    /// Narrower than `is_invocable` on purpose: detects only the direct `func(ic)`
-    /// call, the only call `static_for` performs.
+    /// Tests the exact call `static_for` performs: `func(ic)`.
     template<typename Callable, std::ptrdiff_t I>
-    constexpr auto detect_takes_index(int /*rank*/) noexcept
-      -> decltype(std::declval<Callable &>()(std::integral_constant<std::ptrdiff_t, I>{}), true) {
-        return true;
-    }
-
-    template<typename Callable, std::ptrdiff_t I> constexpr auto detect_takes_index(long /*rank*/) noexcept -> bool {
-        return false;
-    }
-
-    template<typename Callable, std::ptrdiff_t I>
-    inline constexpr bool takes_index_v = detect_takes_index<Callable, I>(0);
+    inline constexpr bool takes_index_v = std::is_invocable_v<Callable &, std::integral_constant<std::ptrdiff_t, I>>;
 
     template<std::ptrdiff_t Begin, std::ptrdiff_t End, std::ptrdiff_t Step>
     POET_CPP20_CONSTEVAL auto default_block_size() noexcept -> std::size_t {

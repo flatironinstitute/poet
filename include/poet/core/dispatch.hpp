@@ -19,7 +19,7 @@
 namespace poet {
 
 /// \brief Concise tuple syntax for `dispatch_set`.
-template<auto... Vs> struct tuple_ {};
+template<auto... Vs> struct values {};
 
 namespace detail {
 
@@ -43,9 +43,18 @@ namespace detail {
             -> result_holder<ResultType> {
             result_holder<ResultType> res;
             if (((std::get<Idx>(runtime_tuple) == V) && ...)) {
+                // Prefer value form, per can_use_value_form's rule for dispatch_param.
+                constexpr bool value_form =
+                  std::is_invocable_v<F &, std::integral_constant<ValueType, V>..., Args &&...>;
                 if constexpr (std::is_void_v<ResultType>) {
-                    std::forward<F>(func).template operator()<V...>(std::forward<Args>(args)...);
+                    if constexpr (value_form) {
+                        std::forward<F>(func)(std::integral_constant<ValueType, V>{}..., std::forward<Args>(args)...);
+                    } else {
+                        std::forward<F>(func).template operator()<V...>(std::forward<Args>(args)...);
+                    }
                     res = void_result{};
+                } else if constexpr (value_form) {
+                    res = std::forward<F>(func)(std::integral_constant<ValueType, V>{}..., std::forward<Args>(args)...);
                 } else {
                     res = std::forward<F>(func).template operator()<V...>(std::forward<Args>(args)...);
                 }
@@ -54,8 +63,8 @@ namespace detail {
         }
 
         template<typename F>
-        static POET_DISPATCH_SET_INLINE_ auto
-          match_and_call(const RuntimeTuple &runtime_tuple, F &&func, Args &&...args) -> result_holder<ResultType> {
+        static auto match_and_call(const RuntimeTuple &runtime_tuple, F &&func, Args &&...args)
+          -> result_holder<ResultType> {
             return impl(std::make_index_sequence<sizeof...(V)>{},
               runtime_tuple,
               std::forward<F>(func),
@@ -63,12 +72,13 @@ namespace detail {
         }
     };
 
-    template<typename Seq, typename Functor, typename... Args> struct seq_call_result;
-
-    template<typename ValueType, ValueType... V, typename Functor, typename... Args>
-    struct seq_call_result<std::integer_sequence<ValueType, V...>, Functor, Args...> {
-        using type = decltype(std::declval<Functor>().template operator()<V...>(std::declval<Args>()...));
-    };
+    /// Declaration-only: splits an `integer_sequence` into one single-value
+    /// `integer_sequence` per element, so `dispatch_result_t` (which already prefers the
+    /// value form and falls back to the template form) can compute a `dispatch_set`
+    /// tuple's result type the same way it does for `dispatch_param`.
+    template<typename ValueType, ValueType... V>
+    auto split_seq(std::integer_sequence<ValueType, V...> /*seq*/)
+      -> std::tuple<std::integer_sequence<ValueType, V>...>;
 
     template<typename V, V Start, V... Is>
     auto inclusive_range_impl(std::integer_sequence<V, Is...>)
@@ -442,20 +452,12 @@ namespace detail {
     struct unique_helper<Head, Rest...>
       : std::bool_constant<(!(seq_equal<Head, Rest>::value || ...) && unique_helper<Rest...>::value)> {};
 
-    /// A `dispatch_param` carries either one sequence or (via `dispatch_set`) a
-    /// tuple of them; both flatten into one sequence tuple.
-    template<typename S> struct as_seq_tuple {
-        using type = std::tuple<S>;
-    };
-    template<typename... Ts> struct as_seq_tuple<std::tuple<Ts...>> {
-        using type = std::tuple<Ts...>;
-    };
-
+    /// Each `dispatch_param`'s `seq_type` (`Seq::value_type` requires `Seq` to
+    /// be a sequence, not a tuple), collected into one tuple.
     template<typename Tuple, std::size_t... Indices>
     POET_CPP20_CONSTEVAL auto extract_sequences_impl(std::index_sequence<Indices...> /*idxs*/) {
         using TupleType = std::remove_reference_t<Tuple>;
-        return std::tuple_cat(
-          typename as_seq_tuple<typename std::tuple_element_t<Indices, TupleType>::seq_type>::type{}...);
+        return std::make_tuple(typename std::tuple_element_t<Indices, TupleType>::seq_type{}...);
     }
 
     template<typename Tuple> POET_CPP20_CONSTEVAL auto extract_sequences() {
@@ -643,26 +645,18 @@ namespace detail {
 
 /// \brief Exact set of allowed tuples for sparse dispatch.
 ///
-/// Where a tuple of `dispatch_param`s probes the full cartesian product,
-/// `dispatch_set` enumerates only the combinations that exist:
-///
-/// ```cpp
-/// using Shapes = poet::dispatch_set<int, poet::tuple_<2, 2>, poet::tuple_<4, 4>>;
-/// poet::dispatch(MatMul{}, Shapes{rows, cols}, a, b, c);
-/// ```
-///
-/// \note Unlike the `dispatch_param` overloads, this path calls **only** the
-/// template form `functor.template operator()<Values...>(args...)`. A functor
-/// taking `std::integral_constant` parameters will not compile here.
+/// Enumerates only the tuples that exist, unlike the cartesian product of
+/// `dispatch_param`s. See docs/guides/dispatch.rst for the value-vs-template
+/// form preference and the codegen contract.
 ///
 /// \tparam ValueType Type every tuple element is converted to.
-/// \tparam Tuples The allowed combinations, as `tuple_<...>`. All must have the
+/// \tparam Tuples The allowed combinations, as `values<...>`. All must have the
 ///   same arity and be distinct.
 template<typename ValueType, typename... Tuples> struct dispatch_set {
   private:
     template<typename TupleHelper> struct convert_tuple;
 
-    template<auto... Vs> struct convert_tuple<tuple_<Vs...>> {
+    template<auto... Vs> struct convert_tuple<values<Vs...>> {
         using type = std::integer_sequence<ValueType, static_cast<ValueType>(Vs)...>;
     };
 
@@ -771,6 +765,7 @@ namespace detail {
 }// namespace detail
 
 namespace detail {
+    /// Count of `dispatch_param`s at the front of `Ts`, stopping at the first non-param.
     template<typename... Ts> struct leading_param_count : std::integral_constant<std::size_t, 0> {};
 
     template<typename First, typename... Rest>
@@ -815,50 +810,18 @@ namespace detail {
     }
 }// namespace detail
 
-/// \brief Dispatches runtime integers to compile-time specializations.
-///
-/// Accepts leading `dispatch_param` arguments, followed by any remaining
-/// arguments, which are forwarded to `functor` untouched. `functor` is invoked
-/// in whichever form it provides, with the value form preferred when both are
-/// viable (which is what makes a generic lambda work):
-///
-/// - `functor(std::integral_constant<V, Value>{}..., args...)`: values
-/// - `functor.template operator()<Value...>(args...)`: template parameters
-///
-/// \warning On a miss this overload is **silent**: it returns a
-/// default-constructed result (or nothing, for `void`) and never calls
-/// `functor`. Prefix the call with `poet::throw_on_no_match` to get a
-/// `no_match_error` instead.
-///
-/// \param functor The callable to specialize. Bound by reference, so a
-///   stateful functor's mutations stay visible to the caller.
-/// \param first_param First `dispatch_param`.
-/// \param rest Further `dispatch_param`s (consecutive ones form a cartesian
-///   product), then the arguments to forward.
-template<typename Functor,
-  typename FirstParam,
-  typename... Rest,
-  std::enable_if_t<detail::is_dispatch_param_v<FirstParam>, int> = 0>
-POET_DISPATCH_ENTRY_INLINE_ auto dispatch(
-  Functor &&functor,// NOLINT(cppcoreguidelines-missing-std-forward): the impl binds the
-                    // functor as an lvalue ref, so forwarding is a no-op.
-  FirstParam &&first_param,
-  Rest &&...rest) -> decltype(auto) {
-    return detail::dispatch_variadic_impl<false>(
-      functor, std::forward<FirstParam>(first_param), std::forward<Rest>(rest)...);
-}
+namespace detail {
+    template<typename T> struct is_dispatch_set : std::false_type {};
+    template<typename ValueType, typename... Tuples>
+    struct is_dispatch_set<dispatch_set<ValueType, Tuples...>> : std::true_type {};
+    template<typename T> inline constexpr bool is_dispatch_set_v = is_dispatch_set<std::decay_t<T>>::value;
 
-/// \brief Tuple overload for `dispatch_param` dispatch.
-template<typename Functor,
-  typename ParamTuple,
-  typename... Args,
-  std::enable_if_t<detail::is_dispatch_param_tuple_v<ParamTuple>, int> = 0>
-auto dispatch(Functor &&functor,// NOLINT(cppcoreguidelines-missing-std-forward): the impl binds the functor as an
-                                // lvalue ref, so forwarding is a no-op.
-  ParamTuple const &params,
-  Args &&...args) -> decltype(auto) {
-    return detail::dispatch_impl<false>(functor, params, std::forward<Args>(args)...);
-}
+    /// True for anything `dispatch`'s leading argument accepts: a `dispatch_param`,
+    /// a tuple of `dispatch_param`s, or a `dispatch_set`.
+    template<typename T>
+    inline constexpr bool is_dispatch_arg_v =
+      is_dispatch_param_v<T> || is_dispatch_param_tuple_v<T> || is_dispatch_set_v<T>;
+}// namespace detail
 
 namespace detail {
 
@@ -933,9 +896,18 @@ namespace detail {
         static POET_FORCEINLINE auto call_key(std::index_sequence<J...> /*idxs*/, Functor &functor, Args &&...args)
           -> result_holder<R> {
             result_holder<R> res;
+            // Prefer value form, per can_use_value_form's rule for dispatch_param.
+            constexpr bool value_form =
+              std::is_invocable_v<Functor &, std::integral_constant<value_type, keys[I][J]>..., Args &&...>;
             if constexpr (std::is_void_v<R>) {
-                functor.template operator()<keys[I][J]...>(std::forward<Args>(args)...);
+                if constexpr (value_form) {
+                    functor(std::integral_constant<value_type, keys[I][J]>{}..., std::forward<Args>(args)...);
+                } else {
+                    functor.template operator()<keys[I][J]...>(std::forward<Args>(args)...);
+                }
                 res = void_result{};
+            } else if constexpr (value_form) {
+                res = functor(std::integral_constant<value_type, keys[I][J]>{}..., std::forward<Args>(args)...);
             } else {
                 res = functor.template operator()<keys[I][J]...>(std::forward<Args>(args)...);
             }
@@ -977,7 +949,7 @@ namespace detail {
     };
 
     template<bool ThrowOnNoMatch, typename Functor, typename TupleList, typename RuntimeTuple, typename... Args>
-    POET_DISPATCH_SET_INLINE_ auto dispatch_tuples_impl(Functor &functor,
+    auto dispatch_tuples_impl(Functor &functor,
       TupleList const & /*tl*/,
       const RuntimeTuple &runtime_tuple,
       Args &&...args)// NOLINT(cppcoreguidelines-missing-std-forward) forwarded inside short-circuiting fold
@@ -986,7 +958,8 @@ namespace detail {
         static_assert(std::tuple_size_v<TL> >= 1, "tuple list must contain at least one allowed tuple");
 
         using first_seq = std::tuple_element_t<0, TL>;
-        using result_type = typename seq_call_result<first_seq, std::decay_t<Functor>, std::decay_t<Args>...>::type;
+        using result_type =
+          dispatch_result_t<std::decay_t<Functor>, decltype(split_seq(first_seq{})), std::decay_t<Args>...>;
 
         result_holder<result_type> out;
 
@@ -1031,59 +1004,60 @@ namespace detail {
             return result_type{};
         }
     }
+
+    /// Routes to the matching `*_impl<ThrowOnNoMatch>` by `First`'s shape: a leading
+    /// `dispatch_param` (consecutive ones form a cartesian product), a tuple of
+    /// `dispatch_param`s, or a `dispatch_set`.
+    template<bool ThrowOnNoMatch, typename Functor, typename First, typename... Rest>
+    auto dispatch_any(Functor &functor, First &&first, Rest &&...rest) -> decltype(auto) {
+        if constexpr (is_dispatch_param_v<std::decay_t<First>>) {
+            return dispatch_variadic_impl<ThrowOnNoMatch>(
+              functor, std::forward<First>(first), std::forward<Rest>(rest)...);
+        } else if constexpr (is_dispatch_param_tuple_v<std::decay_t<First>>) {
+            return dispatch_impl<ThrowOnNoMatch>(functor, first, std::forward<Rest>(rest)...);
+        } else {
+            static_assert(is_dispatch_set_v<std::decay_t<First>>,
+              "poet::dispatch: expected a dispatch_param, a tuple of dispatch_params, or a dispatch_set");
+            return dispatch_tuples_impl<ThrowOnNoMatch>(
+              functor, typename std::decay_t<First>::seq_type{}, first.runtime_tuple(), std::forward<Rest>(rest)...);
+        }
+    }
+
 }// namespace detail
 
-/// \brief Dispatches using a `dispatch_set`.
-template<typename Functor, typename ValueType, typename... Tuples, typename... Args>
-POET_DISPATCH_SET_INLINE_ auto dispatch(
-  Functor &&functor,// NOLINT(cppcoreguidelines-missing-std-forward): the impl binds the
-                    // functor as an lvalue ref, so forwarding is a no-op.
-  const dispatch_set<ValueType, Tuples...> &set,
-  Args &&...args) -> decltype(auto) {
-    return detail::dispatch_tuples_impl<false>(functor,
-      typename dispatch_set<ValueType, Tuples...>::seq_type{},
-      set.runtime_tuple(),
-      std::forward<Args>(args)...);
-}
-
-/// \brief Throwing overload for `dispatch_set` dispatch.
-template<typename Functor, typename ValueType, typename... Tuples, typename... Args>
-POET_DISPATCH_SET_INLINE_ auto dispatch(throw_on_no_match_t /*tag*/,
-  Functor &&functor,// NOLINT(cppcoreguidelines-missing-std-forward): the impl binds the functor as an lvalue ref, so
-                    // forwarding is a no-op.
-  const dispatch_set<ValueType, Tuples...> &set,
-  Args &&...args) -> decltype(auto) {
-    return detail::dispatch_tuples_impl<true>(functor,
-      typename dispatch_set<ValueType, Tuples...>::seq_type{},
-      set.runtime_tuple(),
-      std::forward<Args>(args)...);
-}
-
-/// \brief Throwing `dispatch_param` overload.
+/// \brief Dispatches runtime integers to compile-time specializations.
+///
+/// Accepts a leading `dispatch_param` (consecutive ones form a cartesian product), a
+/// tuple of `dispatch_param`s, or a `dispatch_set`, then forwards the rest to
+/// `functor` untouched. See docs/guides/dispatch.rst for the value-vs-template form
+/// preference and the no-match contract (silent by default; prefix with
+/// `poet::throw_on_no_match` for a `no_match_error`).
+///
+/// \param functor The callable to specialize. Bound by reference, so a stateful
+///   functor's mutations stay visible to the caller.
+/// \param first First `dispatch_param`, tuple of `dispatch_param`s, or `dispatch_set`.
+/// \param rest Further `dispatch_param`s (consecutive ones form a cartesian product;
+///   only meaningful after a leading `dispatch_param`), then the arguments to forward.
 template<typename Functor,
-  typename FirstParam,
+  typename First,
   typename... Rest,
-  std::enable_if_t<detail::is_dispatch_param_v<FirstParam>, int> = 0>
-auto dispatch(throw_on_no_match_t /*tag*/,
-  Functor &&functor,// NOLINT(cppcoreguidelines-missing-std-forward): the impl binds the functor as an lvalue ref, so
-                    // forwarding is a no-op.
-  FirstParam &&first_param,
+  std::enable_if_t<detail::is_dispatch_arg_v<std::decay_t<First>>, int> = 0>
+auto dispatch(Functor &&functor,// NOLINT(cppcoreguidelines-missing-std-forward): the impl binds the functor as an
+                                // lvalue ref, so forwarding is a no-op.
+  First &&first,
   Rest &&...rest) -> decltype(auto) {
-    return detail::dispatch_variadic_impl<true>(
-      functor, std::forward<FirstParam>(first_param), std::forward<Rest>(rest)...);
+    return detail::dispatch_any<false>(functor, std::forward<First>(first), std::forward<Rest>(rest)...);
 }
 
-/// \brief Throwing tuple overload for `dispatch_param` dispatch.
-template<typename Functor,
-  typename ParamTuple,
-  typename... Args,
-  std::enable_if_t<detail::is_dispatch_param_tuple_v<ParamTuple>, int> = 0>
+/// \brief `poet::throw_on_no_match` entry point: same call syntax as the silent
+/// overload above, with the tag prepended.
+template<typename Functor, typename First, typename... Rest>
 auto dispatch(throw_on_no_match_t /*tag*/,
   Functor &&functor,// NOLINT(cppcoreguidelines-missing-std-forward): the impl binds the functor as an lvalue ref, so
                     // forwarding is a no-op.
-  ParamTuple const &params,
-  Args &&...args) -> decltype(auto) {
-    return detail::dispatch_impl<true>(functor, params, std::forward<Args>(args)...);
+  First &&first,
+  Rest &&...rest) -> decltype(auto) {
+    return detail::dispatch_any<true>(functor, std::forward<First>(first), std::forward<Rest>(rest)...);
 }
 
 }// namespace poet
