@@ -272,6 +272,14 @@ TEST_CASE("static_for with step > 1 backward", "[static_for][step]") {
     REQUIRE(values == std::vector<int>{ 10, 8, 6, 4, 2 });
 }
 
+TEST_CASE("static_for empty range never calls the body", "[static_for][edge_case]") {
+    int calls = 0;
+    poet::static_for<3, 3>([&calls](auto) { ++calls; });
+    poet::static_for<0>([&calls](auto) { ++calls; });
+
+    REQUIRE(calls == 0);
+}
+
 TEST_CASE("static_for single iteration", "[static_for][edge_case]") {
     int value = 0;
     poet::static_for<5, 6>([&value](auto index_constant) { value = static_cast<int>(index_constant); });
