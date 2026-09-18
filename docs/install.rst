@@ -55,3 +55,7 @@ git), then add ``include/`` to the compiler include path:
    cmake -P cmake/GenerateVersion.cmake
 
 Include ``<poet/poet.hpp>``.
+
+The generated ``include/poet/version.hpp`` also defines ``poet::version_major``,
+``poet::version_minor``, ``poet::version_patch``, ``poet::version_string``, and
+``poet::version_full``.

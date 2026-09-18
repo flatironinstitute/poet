@@ -25,7 +25,34 @@ Key takeaways
 - ``static_for`` benefits from tuned block sizes on heavier loop bodies.
 - ``dispatch`` turns a runtime choice into compile-time specialization.
 
-See the repository README for current charts.
+Results
+-------
+
+Multi-accumulator ILP with ``dynamic_for``. Compile-time lane indices let the
+compiler maintain independent accumulator chains and break serial dependency
+bottlenecks.
+
+.. image:: https://raw.githubusercontent.com/flatironinstitute/poet/benchmark-results/benchmark-results/dynamic_for_speedup.svg
+   :alt: dynamic_for speedup
+
+Register-aware block sizing with ``static_for``. Matching the unroll factor to
+available SIMD registers avoids spill-driven slowdowns while preserving
+throughput.
+
+.. image:: https://raw.githubusercontent.com/flatironinstitute/poet/benchmark-results/benchmark-results/static_for_speedup.svg
+   :alt: static_for speedup
+
+Compile-time specialization with ``dispatch``. When ``N`` is known at compile
+time, the compiler fully unrolls evaluation loops, constant-folds
+coefficients, and schedules instructions more aggressively.
+
+.. image:: https://raw.githubusercontent.com/flatironinstitute/poet/benchmark-results/benchmark-results/dispatch_optimization.svg
+   :alt: dispatch optimization
+
+The same patterns produce speedups on both GCC and Clang.
+
+.. image:: https://raw.githubusercontent.com/flatironinstitute/poet/benchmark-results/benchmark-results/cross_compiler_overview.svg
+   :alt: cross-compiler overview
 
 Run a microbench on Compiler Explorer
 -------------------------------------

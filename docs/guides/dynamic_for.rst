@@ -3,9 +3,31 @@ Dynamic Loops
 
 ``poet::dynamic_for`` runs a runtime range by emitting compile-time unrolled blocks.
 
-``Unroll`` is exact: the compiler does not unroll the main loop further, even
-under ``-funroll-loops`` or with a constant iteration count. A range of exactly
-``Unroll`` is one block and no loop.
+Guarantees
+----------
+
+- Every index in the range is visited exactly once, in order.
+- The main loop emits the body exactly ``Unroll`` times per iteration; the
+  compiler does not unroll it further, even under ``-funroll-loops``.
+  Verified by: ``exact_unroll`` (``u1_blocks``/``u2_blocks``/``u4_blocks``/``u8_blocks``, ``tests/exact_unroll_check.cpp``).
+- A range of exactly ``Unroll`` iterations is one block and produces no loop.
+  Verified by: ``exact_unroll`` (``u2_one``/``u4_one``/``u8_one``).
+- The lane form restarts lanes at 0 in each emitted block; a tail iteration's
+  lane is not ``index % Unroll``.
+  Verified by: ``dynamic_for passes compile-time lane in tiny and tail ranges``
+  (``tests/dynamic_for_tests.cpp``).
+- ``step == 0``: the compile-time-step form (``dynamic_for<Unroll, Step>``) is a
+  compile error; the runtime-step form (``dynamic_for<Unroll>(begin, end, step,
+  func)``) runs zero iterations.
+  Verified by: ``dynamic_for handles step==0 gracefully``/``with signed types``/``with unsigned types``
+  (``tests/dynamic_for_tests.cpp``) for the runtime form.
+
+When not to use
+----------------
+
+For trivial index-only bodies, a plain ``for`` loop has less overhead than
+``dynamic_for``. The lane-aware form pays off for multi-accumulator work, where
+independent per-lane accumulators break a serial dependency chain.
 
 Basic form
 ----------
@@ -35,9 +57,6 @@ The two-argument form exposes the lane within the current unrolled block:
        acc[lane] += work(i);
    });
 
-This is the main performance-oriented use case. For trivial index-only work,
-a plain ``for`` loop has less overhead.
-
 Compile-time step
 -----------------
 
@@ -53,6 +72,8 @@ Compile-time step
 
 C++20 adaptor
 -------------
+
+Requires ``-std=c++20`` or later; the rest of ``dynamic_for`` is C++17.
 
 .. code-block:: cpp
 
