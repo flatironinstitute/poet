@@ -83,10 +83,14 @@ struct Count {
 auto count(const std::vector<std::string> &lines, const std::string &name) -> Count {
     static const std::regex fma(R"(fn?m(add|sub)|fml[as]|[\s,]_?fma\b)");
     static const std::regex branch(R"(^\s+(j[a-z]*|b|b\.[a-z]+|cbn?z|tbn?z)\s)");
-    static const std::regex div(R"(^\s*i?div[a-z]*\s)");
-    static const std::regex imul(R"(^\s*imul[a-z]*\s)");
-    static const std::regex indirect(R"((call|jmp)[a-z]*\s+\*)");
-    static const std::regex named_call(R"(^\s*call[a-z]*\s+(?!\*)\S)");
+    // x86 div/idiv; AArch64 sdiv/udiv.
+    static const std::regex div(R"(^\s*[isu]?div[a-z]*\s)");
+    // x86 imul; AArch64's magic-number reciprocal shows up as mul/madd/msub/smull/umull.
+    static const std::regex imul(R"(^\s*(imul[a-z]*|mul|madd|msub|smull|umull|smulh|umulh)\s)");
+    // x86 indirect call/jmp through a register (`call *%rax`); AArch64 `blr`/bare `br`.
+    static const std::regex indirect(R"((call|jmp)[a-z]*\s+\*|^\s*(blr|br)\s)");
+    // x86 `call`; AArch64 `bl` (never `blr`, which is indirect and excluded above).
+    static const std::regex named_call(R"(^\s*(call[a-z]*\s+(?!\*)\S|bl\s+\S))");
     static const std::regex ret(R"(^\s*ret[a-z]*\b)");
     Count out;
     auto line = lines.begin();
@@ -123,7 +127,7 @@ auto count(const std::vector<std::string> &lines, const std::string &name) -> Co
 /// compiler keeps it inline after the hit path's `ret` (clang) or moves it to a
 /// `.cold`/`.text.unlikely` block entirely (gcc) — either way the call shows up somewhere.
 auto has_throw_call(const std::vector<std::string> &lines) -> bool {
-    static const std::regex throw_call(R"(^\s*call[a-z]*\s+(?!\*)\S*throw)", std::regex::icase);
+    static const std::regex throw_call(R"(^\s*(call[a-z]*\s+(?!\*)\S*throw|bl\s+\S*throw))", std::regex::icase);
     for (const auto &line : lines) {
         if (std::regex_search(line, throw_call)) { return true; }
     }
