@@ -66,20 +66,22 @@ POET_FORCEINLINE constexpr void static_for(Func &&func) {
     static_assert(BlockSize > 0, "static_for requires BlockSize > 0");
 
     constexpr auto count = detail::compute_range_count<Begin, End, Step>();
-    if constexpr (count == 0) { return; }
-
-    constexpr auto full_blocks = count / BlockSize;
-    constexpr auto remainder = count % BlockSize;
-
-    using callable_t = std::remove_reference_t<Func>;
-    detail::callable_storage_t<Func> callable(std::forward<Func>(func));
-
-    if constexpr (detail::takes_index_v<callable_t, Begin>) {
-        detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(callable);
+    if constexpr (count == 0) {
+        return;
     } else {
-        using invoker_t = detail::template_invoker<callable_t>;
-        invoker_t invoker{ callable };
-        detail::run_blocks<invoker_t, Begin, Step, BlockSize, full_blocks, remainder>(invoker);
+        constexpr auto full_blocks = count / BlockSize;
+        constexpr auto remainder = count % BlockSize;
+
+        using callable_t = std::remove_reference_t<Func>;
+        detail::callable_storage_t<Func> callable(std::forward<Func>(func));
+
+        if constexpr (detail::takes_index_v<callable_t, Begin>) {
+            detail::run_blocks<callable_t, Begin, Step, BlockSize, full_blocks, remainder>(callable);
+        } else {
+            using invoker_t = detail::template_invoker<callable_t>;
+            invoker_t invoker{ callable };
+            detail::run_blocks<invoker_t, Begin, Step, BlockSize, full_blocks, remainder>(invoker);
+        }
     }
 }
 
