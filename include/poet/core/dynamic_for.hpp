@@ -1,24 +1,16 @@
 #pragma once
 
 /// \file dynamic_for.hpp
-/// \brief Runtime-bounded loops with a compile-time-unrolled body.
+/// \brief Runtime-bounded loops with a compile-time-unrolled body, `Unroll` bodies exactly.
 ///
 /// One `run_loop` template covers every public overload: the stride, the
 /// callable form, and the extra by-value arguments are template parameters, so
-/// no tag object or dispatch value is passed at run time. The main loop emits
-/// fully unrolled blocks of `Unroll` iterations; the tail is a binary
-/// decomposition with O(log2 Unroll) branches; a range smaller than `Unroll`
-/// is inlined so the lane constants stay visible.
+/// no tag object or dispatch value is passed at run time. `POET_NO_UNROLL` keeps
+/// the compiler from unrolling the main loop again, and `opaque_count` hides the
+/// block count from the complete unroller.
 ///
-/// `Unroll` is exact: `POET_NO_UNROLL` keeps the compiler from unrolling the main
-/// loop again and `opaque_count` hides the block count from the complete unroller.
-/// A range of exactly `Unroll` is one block and no loop. `tests/exact_unroll_check.cpp`
-/// counts the bodies.
-///
-/// `dynamic_for` pays off for multi-accumulator work: the lane form
-/// (`func(lane_constant, index)`) gives one accumulator per lane, breaking the
-/// serial dependence of a plain loop. For element-wise work or one serial
-/// chain, a plain `for` loop has less overhead.
+/// See docs/guides/dynamic_for.rst for the full contract (exact body count,
+/// lane semantics) and the tests that verify each claim.
 
 #include <cstddef>
 #include <limits>
@@ -326,40 +318,6 @@ template<std::size_t Unroll,
   std::enable_if_t<detail::is_df_callable_v<std::remove_reference_t<Func>, std::size_t>, int> = 0>
 POET_FORCEINLINE void dynamic_for(std::size_t count, Func &&func) {
     dynamic_for<Unroll, 1>(std::size_t{ 0 }, count, std::forward<Func>(func));
-}
-
-/// \brief Executes a runtime-sized loop over `[0, count)`, passing loop-invariant
-/// "hot" values to the callable by value instead of through a closure.
-///
-/// GCC does not scalar-replace a capturing lambda's closure that holds large
-/// types (AVX-512 zmm values, say): the closure spills to the stack and
-/// reloads once per iteration even with full inlining. Named by-value
-/// parameters stay in registers.
-///
-/// This form requires at least one hot argument, so a zero-arg call still
-/// selects the `(count, func)` overload.
-///
-/// \tparam Unroll Iterations per unrolled block.
-/// \tparam Step Compile-time stride (must be non-zero).
-/// \param count Iteration count, i.e. the range `[0, count)`.
-/// \param func Callable `void(T index, HotArgs...)`. Do not also capture the
-///   hot values; a capture would reintroduce the closure this form avoids.
-/// \param args Loop-invariant values forwarded by value at each level.
-template<std::size_t Unroll,
-  std::ptrdiff_t Step = 1,
-  typename Func,
-  typename... Args,
-  std::enable_if_t<(sizeof...(Args) >= 1)
-                     && detail::is_df_callable_v<std::remove_reference_t<Func>, std::size_t, Args...>,
-    int> = 0>
-POET_FORCEINLINE void dynamic_for(std::size_t count, Func &&func, Args... args) {
-    static_assert(Unroll > 0, "dynamic_for requires Unroll > 0");
-    static_assert(Step != 0, "dynamic_for requires Step != 0");
-
-    detail::callable_storage_t<Func> callable(std::forward<Func>(func));
-
-    detail::run_loop<Unroll, detail::wants_lane_v<std::remove_reference_t<Func>, std::size_t, Args...>>(
-      std::size_t{ 0 }, count, detail::static_stride<Step>{}, callable, args...);
 }
 
 }// namespace poet
