@@ -73,7 +73,9 @@ jobs:
           else
             echo "godbolt-links branch not found; publishing docs only."
           fi
-          # Sphinx HTML lives under /docs.
+          # Sphinx HTML lives under /docs. Drop the old build first, or a page
+          # that the new build no longer makes stays published.
+          rm -rf _site/docs
           mkdir -p _site/docs
           cp -r build/docs/_build/html/. _site/docs/
           # Stop Pages from running Jekyll over Sphinx's _static directory.
