@@ -302,7 +302,7 @@ constexpr auto count_trailing_zeros(std::size_t value) noexcept -> unsigned int 
 #define POET_VERSION_MINOR 0
 #define POET_VERSION_PATCH 3
 #define POET_VERSION_STRING "0.0.3"
-#define POET_VERSION_FULL "0.0.3-dev.1"
+#define POET_VERSION_FULL "0.0.3-dev.2"
 // NOLINTEND(cppcoreguidelines-macro-usage,cppcoreguidelines-macro-to-enum,modernize-macro-to-enum)
 
 namespace poet {
@@ -711,6 +711,11 @@ namespace detail {
     template<typename F, typename T, typename... Args>
     inline constexpr bool is_df_callable_v = std::is_invocable_v<F &, T, Args...> || wants_lane_v<F, T, Args...>;
 
+    /// \brief True when the hot-argument overload gets at least one argument.
+    /// A named trait: breathe splits a signature at its first "(", so the API
+    /// docs cannot resolve an overload with a "(" in its template parameters.
+    template<typename... Args> inline constexpr bool has_hot_args_v = sizeof...(Args) >= 1;
+
     template<bool WantsLane, std::size_t Lane, typename Func, typename T, typename... Args>
     POET_FORCEINLINE constexpr void invoke_lane(Func &func, T index, Args... args) {
         if constexpr (WantsLane) {
@@ -1013,7 +1018,7 @@ template<std::size_t Unroll,
   std::ptrdiff_t Step = 1,
   typename Func,
   typename... Args,
-  std::enable_if_t<(sizeof...(Args) >= 1)
+  std::enable_if_t<detail::has_hot_args_v<Args...>
                      && detail::is_df_callable_v<std::remove_reference_t<Func>, std::size_t, Args...>,
     int> = 0>
 POET_FORCEINLINE void dynamic_for(std::size_t count, Func &&func, Args... args) {
