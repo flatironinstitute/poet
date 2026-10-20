@@ -32,7 +32,9 @@ PREDEFINED             = POET_FORCEINLINE= \
                          POET_UNLIKELY(x)=x \
                          POET_CPLUSPLUS=202002L \
                          POET_PUSH_OPTIMIZE= \
-                         POET_POP_OPTIMIZE=
+                         POET_POP_OPTIMIZE= \
+                         POET_DISPATCH_ENTRY_INLINE_= \
+                         POET_DISPATCH_SET_INLINE_=
 GENERATE_XML           = YES
 GENERATE_HTML          = NO
 GENERATE_LATEX         = NO
