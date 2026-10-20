@@ -1,0 +1,16 @@
+.. _exhale_function_dynamic__for_8hpp_1ae12044ae7d668014a4056686b11b55e3:
+
+Template Function poet::dynamic_for(T1, T2, Func&&)
+===================================================
+
+- Defined in :ref:`file_include_poet_core_dynamic_for.hpp`
+
+
+Function Documentation
+----------------------
+
+
+.. cpp:function:: template<std::size_t Unroll, typename T1, typename T2, typename Func, std::enable_if_t< detail::is_df_callable_v< std::remove_reference_t< Func >, std::common_type_t< T1, T2 >>, int > = 0> void None(T1 begin, T2 end, Func &&func)
+
+   Executes a runtime-sized loop, inferring the step direction (+1 when ``begin <= end``, -1 otherwise).
+

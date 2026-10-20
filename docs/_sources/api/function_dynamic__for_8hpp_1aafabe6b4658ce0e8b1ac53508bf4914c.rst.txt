@@ -1,0 +1,20 @@
+.. _exhale_function_dynamic__for_8hpp_1aafabe6b4658ce0e8b1ac53508bf4914c:
+
+Template Function poet::dynamic_for(T1, T2, Func&&)
+===================================================
+
+- Defined in :ref:`file_include_poet_core_dynamic_for.hpp`
+
+
+Function Documentation
+----------------------
+
+
+.. cpp:function:: template<std::size_t Unroll, std::ptrdiff_t Step, typename T1, typename T2, typename Func, std::enable_if_t< detail::is_df_callable_v< std::remove_reference_t< Func >, std::common_type_t< T1, T2 >>, int > = 0> void None(T1 begin, T2 end, Func &&func)
+
+   Executes a runtime-sized loop with a compile-time stride.
+
+   Per-lane stride multiplications become compile-time constants and the direction test in the iteration count folds away.
+
+   :tparam Unroll: Iterations emitted per unrolled block.
+   :tparam Step: Compile-time stride (must be non-zero).
