@@ -84,8 +84,15 @@ configure_package_config_file(
   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poet
 )
 
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/poet-config-version.cmake"
+  COMPATIBILITY SameMinorVersion
+  ARCH_INDEPENDENT
+)
+
 install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/poet-config.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/poet-config-version.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/poet
 )
 

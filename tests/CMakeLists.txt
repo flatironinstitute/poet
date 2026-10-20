@@ -331,6 +331,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|IntelLLVM)$"
   add_dependencies(poet_tests poet_exact_unroll_check)
 endif()
 
+# The installed poet-config-version.cmake must accept the current version and reject the next minor.
+add_test(NAME install_version
+  COMMAND "${CMAKE_COMMAND}"
+    -DPOET_BINARY_DIR=${PROJECT_BINARY_DIR}
+    -DPOET_CONFIG=$<CONFIG>
+    -DPOET_VERSION=${PROJECT_VERSION}
+    -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/install_version
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/install_version_check.cmake")
+
 add_executable(poet_header_analysis header_analysis.cpp)
 target_link_libraries(poet_header_analysis PRIVATE poet)
 target_compile_features(poet_header_analysis PRIVATE cxx_std_17)
