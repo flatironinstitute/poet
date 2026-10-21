@@ -1,0 +1,48 @@
+name: Docs Check
+
+# Builds the Sphinx docs with warnings as errors and checks every link:
+# internal hrefs and anchors with tools/check_doc_links.py, external URLs with
+# the Sphinx linkcheck builder. docs.yml publishes; this workflow only checks.
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install documentation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+          pip install -r docs/requirements.txt
+
+      - name: Doxygen
+        run: |
+          cmake -S . -B build -DPOET_GENERATE_DOCS=ON
+          cmake --build build --target doxygen
+
+      - name: Sphinx HTML (warnings are errors)
+        working-directory: docs
+        env:
+          DOXYGEN_XML_OUTPUT: ${{ github.workspace }}/build/docs/xml
+        run: sphinx-build -W --keep-going -b html . ../build/html
+
+      - name: Internal links and anchors
+        run: |
+          python3 tools/check_doc_links.py --self-test
+          python3 tools/check_doc_links.py build/html
+
+      - name: External links
+        working-directory: docs
+        env:
+          DOXYGEN_XML_OUTPUT: ${{ github.workspace }}/build/docs/xml
+        run: sphinx-build -b linkcheck . ../build/linkcheck

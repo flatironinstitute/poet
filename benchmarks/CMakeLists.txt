@@ -1,26 +1,11 @@
-if(CODSPEED_MODE)
-  # CodSpeed CI wrapper around Google Benchmark; the hooks file requires Clang.
-  CPMAddPackage(
-    NAME google_benchmark
-    GIT_REPOSITORY https://github.com/CodSpeedHQ/codspeed-cpp
-    GIT_TAG v2.1.0
-    SOURCE_SUBDIR google_benchmark
-    OPTIONS
-      "BENCHMARK_ENABLE_TESTING OFF"
-      "BENCHMARK_ENABLE_INSTALL OFF"
-      "BENCHMARK_ENABLE_WERROR OFF"
-  )
-else()
-  # Upstream Google Benchmark for local development (works with any compiler).
-  CPMAddPackage(
-    NAME google_benchmark
-    GIT_REPOSITORY https://github.com/google/benchmark.git
-    GIT_TAG v1.9.5
-    OPTIONS
-      "BENCHMARK_ENABLE_TESTING OFF"
-      "BENCHMARK_ENABLE_INSTALL OFF"
-  )
-endif()
+CPMAddPackage(
+  NAME google_benchmark
+  GIT_REPOSITORY https://github.com/google/benchmark.git
+  GIT_TAG v1.9.5
+  OPTIONS
+    "BENCHMARK_ENABLE_TESTING OFF"
+    "BENCHMARK_ENABLE_INSTALL OFF"
+)
 
 include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
