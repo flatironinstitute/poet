@@ -1,0 +1,43 @@
+// Example: Horner's polynomial at a runtime-specialized degree — dispatch picks N, static_for unrolls.
+// Build: cmake -S . -B build -DPOET_BUILD_EXAMPLES=ON && cmake --build build --target example_polynomial
+
+#include <array>
+#include <cstdio>
+
+#include <poet/poet.hpp>
+
+// Horner's method specialized for compile-time degree N.
+// Evaluates p(x) = c[0] + c[1]*x + c[2]*x^2 + ... + c[N]*x^N.
+struct Horner {
+    template<int N> double operator()(const double *coeffs, double x) const {
+        double acc = coeffs[N];
+        // Unrolled inner loop: every coefficient access is a constant offset.
+        poet::static_for<0, N>([&](auto I) { acc = acc * x + coeffs[N - 1 - I]; });
+        return acc;
+    }
+};
+
+int main() {
+    constexpr std::array<double, 9> coeffs{ 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+
+    // `volatile` keeps the dispatch path live so the asm pane shows the
+    // jump table over the compile-time specializations.
+    volatile int v_degree = 5;
+    volatile double v_x = 1.5;
+    int degree = v_degree;
+    double x = v_x;
+
+    double y = poet::dispatch(Horner{}, poet::dispatch_param<poet::inclusive_range<1, 8>>{ degree }, coeffs.data(), x);
+
+    std::printf("p(%.1f) at degree %d = %.6f\n", x, degree, y);
+
+    v_degree = 3;
+    v_x = 2.0;
+    double y3 = poet::dispatch(Horner{},
+      poet::dispatch_param<poet::inclusive_range<1, 8>>{ static_cast<int>(v_degree) },
+      coeffs.data(),
+      static_cast<double>(v_x));
+    std::printf("p(2.0) at degree 3 = %.6f (expected 49.0)\n", y3);
+
+    return 0;
+}
